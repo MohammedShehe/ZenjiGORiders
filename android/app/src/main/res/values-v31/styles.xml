@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ system splash configuration. Keep the logo transparent so
+         only the ZenjiGO mark is rendered over the deep-navy background. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/zenjigo_splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/zenjigo_logo</item>
+        <item name="android:windowBackground">@color/zenjigo_splash_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/zenjigo_splash_background</item>
+        <item name="android:navigationBarColor">@color/zenjigo_splash_background</item>
+    </style>
+</resources>

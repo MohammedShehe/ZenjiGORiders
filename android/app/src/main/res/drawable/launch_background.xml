@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+    <!-- ZenjiGO brand splash background: deep navy (#0B1A33). -->
+    <item android:drawable="@color/zenjigo_splash_background" />
+    <!-- Transparent ZenjiGO mark; no white/colored box behind the logo. -->
     <item>
-        <bitmap android:gravity="center" android:src="@drawable/zenjigo_logo" />
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/zenjigo_logo"
+            android:antialias="true" />
     </item>
 </layer-list>
