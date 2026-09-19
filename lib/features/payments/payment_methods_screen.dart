@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/widgets/loading_button.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_provider.dart';
+import 'add_payment_method_screen.dart';
 import '../wallet/wallet_setup_screen.dart';
 
 class PaymentMethodsScreen extends StatefulWidget {
@@ -14,156 +17,127 @@ class PaymentMethodsScreen extends StatefulWidget {
 }
 
 class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
+  bool _busy = false;
+
+  Future<void> _add() async {
+    final method = await Navigator.push<PaymentMethodModel>(context, MaterialPageRoute(builder: (_) => const AddPaymentMethodScreen()));
+    if (method != null && mounted) setState(() {});
+  }
+
   Future<void> _remove(PaymentMethodModel method) async {
-    final confirmed = await showDialog<bool>(
+    final app = context.read<AppProvider>();
+    final methods = app.user?.paymentMethods ?? const <PaymentMethodModel>[];
+    if (methods.length == 1) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(app.t('Keep at least one payment method. Cash remains available for rides.', 'Weka angalau njia moja ya malipo. Fedha taslimu bado inapatikana kwa safari.'))));
+      return;
+    }
+    final ok = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove payment method?'),
-        content: const Text('This payment method will be removed from your ZenjiGO account.'),
+      builder: (ctx) => AlertDialog(
+        title: Text(app.t('Remove payment method?', 'Ondoa njia ya malipo?')),
+        content: Text(app.t('You will no longer be able to use this method for rides or wallet top-ups.', 'Hutaweza kutumia njia hii kwa safari au kuongeza salio la pochi.')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Remove')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(app.t('Cancel', 'Ghairi'))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(app.t('Remove', 'Ondoa'))),
         ],
       ),
     );
-    if (confirmed == true && mounted) {
-      context.read<AppProvider>().removePaymentMethod(method.id);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment method removed.')));
-    }
+    if (ok != true || !mounted) return;
+    app.removePaymentMethod(method.id);
   }
 
-  Future<void> _addMethod() async {
-    String type = 'momo';
-    final provider = TextEditingController();
-    final value = TextEditingController();
-    try {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (dialogContext, setDialogState) => AlertDialog(
-            title: const Text('Add Payment Method'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: type,
-                    decoration: const InputDecoration(labelText: 'Method'),
-                    items: const [
-                      DropdownMenuItem(value: 'momo', child: Text('Mobile Money')),
-                      DropdownMenuItem(value: 'bank', child: Text('Bank Card')),
-                    ],
-                    onChanged: (v) => setDialogState(() => type = v ?? 'momo'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: provider,
-                    decoration: InputDecoration(
-                      labelText: type == 'bank' ? 'Card holder' : 'Provider',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: value,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      labelText: type == 'bank' ? 'Last 4 card digits' : 'Phone / account number',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-              ElevatedButton(
-                onPressed: () {
-                  if (value.text.trim().isEmpty) return;
-                  Navigator.pop(dialogContext, true);
-                },
-                child: const Text('Add'),
-              ),
-            ],
-          ),
-        ),
-      );
-      if (confirmed == true && mounted) {
-        final text = value.text.trim();
-        context.read<AppProvider>().addPaymentMethod(
-          PaymentMethodModel(
-            id: DateTime.now().microsecondsSinceEpoch.toString(),
-            type: type,
-            provider: provider.text.trim().isEmpty ? (type == 'bank' ? 'Bank Card' : 'Mobile Money') : provider.text.trim(),
-            accountNumber: type == 'bank' ? null : text,
-            cardLast4: type == 'bank' ? text : null,
-          ),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment method added.')));
-      }
-    } finally {
-      provider.dispose();
-      value.dispose();
-    }
+  Future<void> _setDefault(PaymentMethodModel method) async {
+    final app = context.read<AppProvider>();
+    if (method.isDefault) return;
+    setState(() => _busy = true);
+    await Future.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    app.setDefaultPaymentMethod(method.id);
+    setState(() => _busy = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final methods = context.watch<AppProvider>().user?.paymentMethods ?? const <PaymentMethodModel>[];
+    final app = context.watch<AppProvider>();
+    final methods = app.user?.paymentMethods ?? const <PaymentMethodModel>[];
+    final accent = app.isDark ? AppColors.aquaGreen : AppColors.oceanTeal;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Payment Methods'),
-        actions: [IconButton(onPressed: _addMethod, icon: const Icon(Icons.add))],
+        title: Text(app.t('Payment methods', 'Njia za malipo')),
+        actions: [IconButton(onPressed: _busy ? null : _add, icon: const Icon(Icons.add_card_rounded))],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
         children: [
-          if (methods.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 50),
-              child: Column(
-                children: [
-                  Icon(Icons.payment_outlined, size: 64),
-                  SizedBox(height: 12),
-                  Text('No saved payment methods'),
-                  SizedBox(height: 4),
-                  Text('Add mobile money or a bank card to pay faster.'),
-                ],
-              ),
-            )
-          else
-            ...methods.map(
-              (method) => Card(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    child: Icon(method.type == 'bank' ? Icons.credit_card : Icons.phone_android),
-                  ),
-                  title: Text(method.type == 'bank' ? 'Bank Card' : (method.provider ?? 'Mobile Money')),
-                  subtitle: Text(method.type == 'bank' ? '•••• ${method.cardLast4 ?? ''}' : (method.accountNumber ?? '')),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () => _remove(method),
-                  ),
-                ),
-              ),
-            ),
-          const SizedBox(height: 14),
-          OutlinedButton.icon(onPressed: _addMethod, icon: const Icon(Icons.add), label: const Text('Add Payment Method')),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: () {
-              if (widget.onComplete != null) {
-                widget.onComplete!();
-              } else {
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Done'),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(color: accent.withOpacity(.10), borderRadius: BorderRadius.circular(20)),
+            child: Row(children: [
+              Icon(Icons.verified_user_rounded, color: accent),
+              const SizedBox(width: 12),
+              Expanded(child: Text(app.t('Add and manage the payment methods you trust. Your default method is highlighted and can be changed anytime.', 'Ongeza na simamia njia zako za malipo. Njia ya msingi imeonyeshwa na unaweza kuibadilisha wakati wowote.'), style: const TextStyle(fontSize: 13, height: 1.35))),
+            ]),
           ),
-          const SizedBox(height: 8),
-          TextButton(
+          const SizedBox(height: 22),
+          if (methods.isEmpty)
+            _empty(app, accent)
+          else ...[
+            ...methods.map((method) => _methodTile(method, accent)),
+          ],
+          const SizedBox(height: 12),
+          LoadingButton(text: app.t('Add payment method', 'Ongeza njia ya malipo'), icon: Icons.add_rounded, isLoading: _busy, onPressed: _add),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletSetupScreen())),
-            child: const Text('Top up ZenjiGO Wallet'),
+            icon: const Icon(Icons.account_balance_wallet_rounded),
+            label: Text(app.t('Top up ZenjiGO Wallet', 'Ongeza salio la ZenjiGO Wallet')),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _empty(AppProvider app, Color accent) => Container(
+    padding: const EdgeInsets.all(30),
+    decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(20)),
+    child: Column(children: [
+      Icon(Icons.payments_outlined, size: 56, color: accent),
+      const SizedBox(height: 12),
+      Text(app.t('No saved payment methods', 'Hakuna njia za malipo zilizohifadhiwa'), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+      const SizedBox(height: 6),
+      Text(app.t('Add mobile money or a bank card to make booking and wallet top-ups faster.', 'Ongeza pesa ya simu au kadi ya benki ili kurahisisha safari na kuongeza salio.'), textAlign: TextAlign.center),
+    ]),
+  );
+
+  Widget _methodTile(PaymentMethodModel method, Color accent) {
+    final app = context.read<AppProvider>();
+    final isCard = method.type == 'bank';
+    final title = isCard ? app.t('Bank Card', 'Kadi ya benki') : (method.provider ?? 'Mobile Money');
+    final subtitle = isCard ? '•••• ${method.cardLast4 ?? '----'}${method.expiry != null ? '  ·  ${method.expiry}' : ''}' : (method.accountNumber ?? '');
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+        child: Row(children: [
+          Container(width: 48, height: 48, decoration: BoxDecoration(color: accent.withOpacity(.12), borderRadius: BorderRadius.circular(14)), child: Icon(isCard ? Icons.credit_card_rounded : Icons.phone_android_rounded, color: accent)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))), if (method.isDefault) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: AppColors.brightGreen.withOpacity(.12), borderRadius: BorderRadius.circular(20)), child: const Text('DEFAULT', style: TextStyle(color: AppColors.brightGreen, fontSize: 9, fontWeight: FontWeight.w800))) ]),
+            const SizedBox(height: 4),
+            Text(subtitle, style: TextStyle(fontSize: 12, color: app.isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary)),
+          ])),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'default') _setDefault(method);
+              if (value == 'remove') _remove(method);
+            },
+            itemBuilder: (_) => [
+              if (!method.isDefault) PopupMenuItem(value: 'default', child: Text(app.t('Make default', 'Fanya msingi'))),
+              PopupMenuItem(value: 'remove', child: Text(app.t('Remove', 'Ondoa'))),
+            ],
+          ),
+        ]),
       ),
     );
   }

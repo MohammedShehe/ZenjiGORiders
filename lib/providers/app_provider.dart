@@ -436,29 +436,51 @@ class AppProvider extends ChangeNotifier {
   void addPaymentMethod(PaymentMethodModel method) {
     if (_user == null) return;
     final methods = List<PaymentMethodModel>.from(_user!.paymentMethods);
-    if (method.isDefault) {
+    final shouldDefault = method.isDefault || methods.isEmpty;
+    final normalized = PaymentMethodModel(
+      id: method.id,
+      type: method.type,
+      provider: method.provider,
+      accountNumber: method.accountNumber,
+      cardLast4: method.cardLast4,
+      expiry: method.expiry,
+      isDefault: shouldDefault,
+    );
+    if (shouldDefault) {
       for (var i = 0; i < methods.length; i++) {
+        final old = methods[i];
         methods[i] = PaymentMethodModel(
-          id: methods[i].id,
-          type: methods[i].type,
-          provider: methods[i].provider,
-          accountNumber: methods[i].accountNumber,
-          cardLast4: methods[i].cardLast4,
-          expiry: methods[i].expiry,
+          id: old.id,
+          type: old.type,
+          provider: old.provider,
+          accountNumber: old.accountNumber,
+          cardLast4: old.cardLast4,
+          expiry: old.expiry,
           isDefault: false,
         );
       }
     }
-    methods.add(method);
+    methods.add(normalized);
     _user = _user!.copyWith(paymentMethods: methods);
     notifyListeners();
   }
 
   void removePaymentMethod(String id) {
     if (_user == null) return;
-    _user = _user!.copyWith(
-      paymentMethods: _user!.paymentMethods.where((m) => m.id != id).toList(),
-    );
+    final methods = _user!.paymentMethods.where((m) => m.id != id).toList();
+    if (methods.isNotEmpty && !methods.any((m) => m.isDefault)) {
+      final first = methods.first;
+      methods[0] = PaymentMethodModel(
+        id: first.id,
+        type: first.type,
+        provider: first.provider,
+        accountNumber: first.accountNumber,
+        cardLast4: first.cardLast4,
+        expiry: first.expiry,
+        isDefault: true,
+      );
+    }
+    _user = _user!.copyWith(paymentMethods: methods);
     notifyListeners();
   }
 

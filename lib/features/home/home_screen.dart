@@ -6,10 +6,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../providers/app_provider.dart';
+import '../../models/user_model.dart';
 import '../ride/ride_details_screen.dart';
 import '../extras/parcel_screen.dart';
 import '../extras/tour_packages_screen.dart';
 import '../extras/promotions_screen.dart';
+import '../payments/payment_methods_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -118,38 +120,64 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _pickPaymentMethod() async {
     final app = context.read<AppProvider>();
+    final methods = app.user?.paymentMethods ?? const <PaymentMethodModel>[];
     final selected = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
       builder: (ctx) {
+        final accent = app.isDark ? AppColors.aquaGreen : AppColors.oceanTeal;
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(app.t('Payment method', 'Njia ya malipo'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(width: 42, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(10))),
+              const SizedBox(height: 14),
+              Text(app.t('Choose payment method', 'Chagua njia ya malipo'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const CircleAvatar(child: Text('💵', style: TextStyle(fontSize: 20))),
+                title: Text(app.t('Cash', 'Fedha taslimu')),
+                subtitle: Text(app.t('Pay the driver after the ride', 'Lipa dereva baada ya safari')),
+                trailing: _paymentMethod == 'cash' ? Icon(Icons.check_circle, color: accent) : null,
+                onTap: () => Navigator.pop(ctx, 'cash'),
               ),
-              ...AppConstants.paymentMethods.map((m) {
-                final id = m['id'] as String;
-                final disabled = id == 'wallet' && app.walletBalance <= 0;
+              if (app.walletBalance > 0)
+                ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_rounded)),
+                  title: Text(app.t('ZenjiGO Wallet', 'Pochi ya ZenjiGO')),
+                  subtitle: Text('TZS ${app.walletBalance.toStringAsFixed(0)} available'),
+                  trailing: _paymentMethod == 'wallet' ? Icon(Icons.check_circle, color: accent) : null,
+                  onTap: () => Navigator.pop(ctx, 'wallet'),
+                ),
+              ...methods.map((m) {
+                final isCard = m.type == 'bank';
+                final label = isCard ? app.t('Bank Card', 'Kadi ya benki') : (m.provider ?? app.t('Mobile Money', 'Pesa ya simu'));
+                final detail = isCard ? '•••• ${m.cardLast4 ?? ''}' : (m.accountNumber ?? '');
                 return ListTile(
-                  leading: Text(m['icon'] as String, style: const TextStyle(fontSize: 24)),
-                  title: Text(app.isSwahili ? m['nameSw'] as String : m['name'] as String),
-                  subtitle: id == 'wallet' ? Text('TZS ${app.walletBalance.toStringAsFixed(0)}') : null,
-                  trailing: _paymentMethod == id ? const Icon(Icons.check, color: AppColors.brightGreen) : null,
-                  enabled: !disabled,
-                  onTap: disabled ? null : () => Navigator.pop(ctx, id),
+                  leading: CircleAvatar(child: Icon(isCard ? Icons.credit_card_rounded : Icons.phone_android_rounded)),
+                  title: Text(label),
+                  subtitle: Text(detail),
+                  trailing: _paymentMethod == m.type ? Icon(Icons.check_circle, color: accent) : null,
+                  onTap: () => Navigator.pop(ctx, m.type),
                 );
               }),
-              const SizedBox(height: 8),
-            ],
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentMethodsScreen()));
+                },
+                icon: const Icon(Icons.add_card_rounded),
+                label: Text(app.t('Add / manage payment methods', 'Ongeza / simamia njia za malipo')),
+              ),
+            ]),
           ),
         );
       },
     );
     if (selected != null) setState(() => _paymentMethod = selected);
   }
-
   void _pickSavedDestination() async {
     final app = context.read<AppProvider>();
     final locs = app.user?.savedLocations ?? [];

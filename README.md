@@ -1,42 +1,44 @@
-# ZenjiGO Rider App (Frontend)
+# ZenjiGO Rider — Flutter Frontend
 
-Premium ride-hailing Flutter app for Zanzibar (Unguja & Pemba).
+A polished frontend prototype for the ZenjiGO rider app, designed to match the ZenjiGO Driver visual system.
 
-## Features
+## Included flows
 
-- **Splash & Onboarding** – Animated logo, About Us, Language (EN/SW), Permissions
-- **Authentication** – Phone + OTP (SMS/WhatsApp), full Sign Up with Zanzibar location hierarchy
-- **Home** – Live map (flutter_map), nearby drivers, ride types (Boda/Bajaji/Taxi/Airport), fare estimate
-- **Ride Details** – Driver info, call/chat/share, cancel & report
-- **Wallet** – Balance, top-up with slider (+500), mobile money sources
-- **Payments** – Cash, Mobile Money, Bank card (with live preview), ZenjiGO Wallet
-- **In-App Chat** – WhatsApp-style, pinned ZenjiGO Support, translate toggle, 30-day auto-delete notice
-- **Profile** – Edit info, ride history, saved locations, support contacts, language, dark/light mode, logout
-- **Extras** – Parcel delivery, Tour packages, Promotions & offers
-- **4 Bottom Tabs** – Home · Wallet · Chat · Profile
-- **Themes** – Dark (default) & Light with custom ZenjiGO colors
-- **i18n** – English & Kiswahili
+- Dark mode by default + full light mode
+- English / Kiswahili UI preference
+- Onboarding, location permissions and rider registration
+- Zanzibar location hierarchy and profile setup
+- Four-tab shell: Home, Wallet, Chat, Profile
+- Map-based ride booking with Boda, Bajaji, Taxi, Airport and Parcel services
+- Nearby-driver map markers and ride lifecycle simulation
+- Driver acceptance, approach, arrival, live trip progress and receipt
+- Ride cancellation and driver reporting flows
+- Driver chat and ZenjiGO Support chat
+- WhatsApp-style replies, message selection/deletion, edit, copy, emoji and translation preview
+- Saved locations and ride history
+- Promotions and referral flows
+- Payment method management
+  - Mobile Money: M-Pesa, Mix by Yas, Airtel Money, HaloPesa
+  - Bank Card
+  - Default payment method management
+  - Validation and confirmation states
+  - Safe deletion rules
+- ZenjiGO Wallet
+  - Top-up amount selection
+  - Saved payment method selection
+  - Add-payment flow directly from top-up
+  - Simulated secure processing + success receipt
+  - Transaction history
+- Responsive dark/light styling using the same ZenjiGO palette and typography family as the Driver app
+
+## Frontend/backend boundary
+
+This project intentionally contains frontend/demo state only. Payment gateways, OTP delivery, production maps/geocoding, real-time sockets, push notifications and backend persistence should be connected through the existing provider/state layer when the backend APIs are ready.
 
 ## Run
 
 ```bash
-cd zenjigo_riders
 flutter pub get
+flutter analyze
 flutter run
 ```
-
-## Demo OTP
-
-Any 4-digit code works (e.g. `1234`).
-
-## Organization
-
-- Phone: +255 676 891 227
-- Email: zenjigo@support.com
-- Instagram: @zenjigo
-
-## Notes
-
-- Frontend only – all data is mocked
-- Map uses free Carto tiles (no API key required)
-- Logos included in `assets/logos/`
