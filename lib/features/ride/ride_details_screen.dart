@@ -72,8 +72,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             children: [
               TileLayer(
                 urlTemplate: isDark
-                    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-                    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                 subdomains: const ['a', 'b', 'c', 'd'],
                 userAgentPackageName: 'com.zenjigo.riders',
               ),
@@ -255,8 +255,13 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: Text(app.t('Keep Ride', 'Endelea na Safari'))), ElevatedButton(onPressed: () => Navigator.pop(context, true), child: Text(app.t('Cancel Ride', 'Ghairi Safari')))],
     ));
     if (confirm == true && mounted) {
+      // Show feedback while this route is still mounted. Calling
+      // ScaffoldMessenger.of(context) after Navigator.pop(context) can
+      // trigger "Looking up a deactivated widget's ancestor is unsafe".
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(app.t('Ride cancelled successfully.', 'Safari imeghairiwa kikamilifu.'))),
+      );
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(app.t('Ride cancelled successfully.', 'Safari imeghairiwa kikamilifu.'))));
     }
   }
 
