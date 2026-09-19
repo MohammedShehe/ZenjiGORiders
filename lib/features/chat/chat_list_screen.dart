@@ -65,7 +65,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   ),
                   confirmDismiss: (_) async {
                     if (chat.isSupport) return false;
-                    return showDialog<bool>(
+                    final ok = await showDialog<bool>(
                       context: context,
                       builder: (dialogContext) => AlertDialog(
                         title: Text(app.t('Delete chat?', 'Futa mazungumzo?')),
@@ -84,7 +84,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         ],
                       ),
                     );
+                    if (ok == true) {
+                      app.deleteConversation(chat.id);
+                      return true;
+                    }
+                    return false;
                   },
+                  onDismissed: (_) {},
                   child: ListTile(
                     onTap: () => Navigator.push(
                       context,

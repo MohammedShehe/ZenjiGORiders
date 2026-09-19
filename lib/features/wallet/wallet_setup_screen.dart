@@ -43,7 +43,7 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
     await Future.delayed(const Duration(milliseconds: 1800));
     if (!mounted) return;
     final app = context.read<AppProvider>();
-    app.updateWallet(app.walletBalance + _amount);
+    app.topUpWallet(amount: _amount, paymentMethod: 'momo', provider: _source);
     setState(() => _loading = false);
     showDialog(
       context: context,

@@ -96,8 +96,8 @@ class _WalletScreenState extends State<WalletScreen> {
                     const SizedBox(height: 10),
                     ElevatedButton(
                       onPressed: () {
-                        app.updateWallet(app.walletBalance + amount);
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('TZS ${amount.toStringAsFixed(0)} added to your wallet.')));
+                        app.topUpWallet(amount: amount, paymentMethod: 'momo', provider: 'Quick Top-up');
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(app.t('TZS ${amount.toStringAsFixed(0)} added to your wallet.', 'TZS ${amount.toStringAsFixed(0)} imeongezwa kwenye pochi.'))));
                       },
                       child: const Text('Top Up Now'),
                     ),

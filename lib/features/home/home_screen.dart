@@ -25,6 +25,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _searching = false;
   double? _estimatedFare;
   int? _eta;
+  String _paymentMethod = 'cash';
+  double? _toLat;
+  double? _toLng;
 
   // Zanzibar center
   static const LatLng _zanzibarCenter = LatLng(-6.1659, 39.2026);
@@ -44,6 +47,17 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final app = context.read<AppProvider>();
+      if (app.currentAddress.isNotEmpty) {
+        _fromCtrl.text = app.currentAddress;
+      }
+    });
+  }
+
   void _selectRide(String id) {
     setState(() {
       _selectedRideType = id;
@@ -56,14 +70,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestRide() async {
+    final app = context.read<AppProvider>();
     if (_toCtrl.text.isEmpty || _selectedRideType == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.read<AppProvider>().t('Select destination and ride type', 'Chagua mahali na aina ya usafiri'))),
+        SnackBar(content: Text(app.t('Select destination and ride type', 'Chagua mahali na aina ya usafiri'))),
       );
       return;
     }
+    // Wallet balance check
+    if (_paymentMethod == 'wallet') {
+      final fare = (_estimatedFare ?? 5000) - app.pendingDiscount;
+      if (!app.hasSufficientWallet(fare)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(app.t('Insufficient wallet balance', 'Salio la pochi haitoshi'))),
+        );
+        return;
+      }
+    }
+    // Mock destination coords if not set (simple hash of text for demo)
+    _toLat ??= -6.1659 + (_toCtrl.text.hashCode % 100) / 5000.0;
+    _toLng ??= 39.2026 + (_toCtrl.text.hashCode % 80) / 5000.0;
+
     setState(() => _searching = true);
-    await Future.delayed(const Duration(milliseconds: 1800));
+    await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
     setState(() => _searching = false);
 
@@ -75,9 +104,94 @@ class _HomeScreenState extends State<HomeScreen> {
           to: _toCtrl.text,
           fare: _estimatedFare ?? 5000,
           eta: _eta ?? 15,
+          fromLat: app.currentLat,
+          fromLng: app.currentLng,
+          toLat: _toLat,
+          toLng: _toLng,
+          paymentMethod: _paymentMethod,
+          promoCode: app.pendingPromoCode,
+          discount: app.pendingDiscount,
         ),
       ),
     );
+  }
+
+  void _pickPaymentMethod() async {
+    final app = context.read<AppProvider>();
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(app.t('Payment method', 'Njia ya malipo'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+              ...AppConstants.paymentMethods.map((m) {
+                final id = m['id'] as String;
+                final disabled = id == 'wallet' && app.walletBalance <= 0;
+                return ListTile(
+                  leading: Text(m['icon'] as String, style: const TextStyle(fontSize: 24)),
+                  title: Text(app.isSwahili ? m['nameSw'] as String : m['name'] as String),
+                  subtitle: id == 'wallet' ? Text('TZS ${app.walletBalance.toStringAsFixed(0)}') : null,
+                  trailing: _paymentMethod == id ? const Icon(Icons.check, color: AppColors.brightGreen) : null,
+                  enabled: !disabled,
+                  onTap: disabled ? null : () => Navigator.pop(ctx, id),
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+    if (selected != null) setState(() => _paymentMethod = selected);
+  }
+
+  void _pickSavedDestination() async {
+    final app = context.read<AppProvider>();
+    final locs = app.user?.savedLocations ?? [];
+    if (locs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(app.t('No saved locations', 'Hakuna maeneo yaliyohifadhiwa'))),
+      );
+      return;
+    }
+    final picked = await showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(app.t('Saved places', 'Maeneo yaliyohifadhiwa'), style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            ...locs.map((l) => ListTile(
+                  leading: const Icon(Icons.bookmark),
+                  title: Text(l.label),
+                  subtitle: Text(l.address),
+                  onTap: () => Navigator.pop(ctx, l),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        _toCtrl.text = picked.address;
+        _toLat = picked.lat;
+        _toLng = picked.lng;
+        if (_selectedRideType != null) {
+          final type = AppConstants.rideTypes.firstWhere((r) => r['id'] == _selectedRideType);
+          _estimatedFare = (type['baseFare'] as int) + (type['perKm'] as int) * 8.0;
+          _eta = 15;
+        }
+      });
+    }
   }
 
   @override
@@ -282,6 +396,67 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _pickPaymentMethod,
+                            icon: const Icon(Icons.payment, size: 18),
+                            label: Text(
+                              AppConstants.paymentMethods.firstWhere((m) => m['id'] == _paymentMethod, orElse: () => AppConstants.paymentMethods[0])['name'] as String,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: _pickSavedDestination,
+                          icon: const Icon(Icons.bookmark_border, size: 18),
+                          label: Text(app.t('Saved', 'Imehifadhiwa')),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (app.pendingPromoCode != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+                      child: Row(
+                        children: [
+                          Icon(Icons.local_offer, size: 16, color: AppColors.brightGreen),
+                          const SizedBox(width: 6),
+                          Expanded(child: Text(app.t('Promo ${app.pendingPromoCode} (-${app.pendingDiscount.toStringAsFixed(0)})', 'Promo ${app.pendingPromoCode} (-${app.pendingDiscount.toStringAsFixed(0)})'), style: const TextStyle(fontSize: 12, color: AppColors.brightGreen))),
+                          TextButton(onPressed: () { app.clearPromo(); setState(() {}); }, child: Text(app.t('Clear', 'Futa'), style: const TextStyle(fontSize: 12))),
+                        ],
+                      ),
+                    ),
+                  // Active ride banner
+                  if (app.activeRide != null && app.activeRide!.isActive)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                      child: Material(
+                        color: AppColors.oceanTeal.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => RideDetailsScreen(existingRide: app.activeRide)));
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.directions_car, color: AppColors.oceanTeal),
+                                const SizedBox(width: 10),
+                                Expanded(child: Text(app.t('Active ride · ${app.activeRide!.status}', 'Safari hai · ${app.activeRide!.status}'), style: const TextStyle(fontWeight: FontWeight.w600))),
+                                const Icon(Icons.chevron_right),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                     child: SizedBox(

@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/loading_button.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../providers/app_provider.dart';
 import '../auth/login_screen.dart';
 
@@ -27,6 +28,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
+  Future<void> _requestLocation() async {
+    try {
+      final status = await Permission.locationWhenInUse.request();
+      final granted = status.isGranted || status.isLimited;
+      setState(() => _locationGranted = granted);
+      if (mounted) {
+        context.read<AppProvider>().setLocationGranted(granted);
+        if (granted) {
+          // Mock realistic Zanzibar coords for frontend demo
+          context.read<AppProvider>().setCurrentLocation(
+            lat: -6.1659,
+            lng: 39.2026,
+            address: 'Mwanakwerekwe, Zanzibar',
+          );
+        }
+      }
+    } catch (_) {
+      // Emulator / desktop may not support; allow mock grant for UI testing
+      setState(() => _locationGranted = true);
+      if (mounted) {
+        context.read<AppProvider>().setLocationGranted(true);
+        context.read<AppProvider>().setCurrentLocation(
+          lat: -6.1659,
+          lng: 39.2026,
+          address: 'Mwanakwerekwe, Zanzibar',
+        );
+      }
+    }
+  }
+
   void _next() {
     if (_currentPage < 1) {
       _pageController.nextPage(
@@ -34,6 +65,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         curve: Curves.easeInOut,
       );
     } else {
+      if (!_locationGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(context.read<AppProvider>().t(
+              'Please enable location to continue',
+              'Tafadhali washa eneo ili kuendelea',
+            )),
+          ),
+        );
+        return;
+      }
       context.read<AppProvider>().completeOnboarding();
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
@@ -297,7 +339,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             app.t('Required to find nearby drivers and show your position on the map.',
                 'Inahitajika kupata madereva karibu na kuonyesha nafasi yako kwenye ramani.'),
             _locationGranted,
-            (v) => setState(() => _locationGranted = v),
+            (v) async {
+              if (v == true) {
+                await _requestLocation();
+              } else {
+                setState(() => _locationGranted = false);
+                if (mounted) context.read<AppProvider>().setLocationGranted(false);
+              }
+            },
             isDark,
             true,
           ),

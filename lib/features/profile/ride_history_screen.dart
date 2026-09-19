@@ -1,30 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/ride_model.dart';
 import '../../providers/app_provider.dart';
-import '../ride/ride_details_screen.dart';
+import '../ride/ride_history_details_screen.dart';
 
 class RideHistoryScreen extends StatelessWidget {
   const RideHistoryScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final rides = context.watch<AppProvider>().rideHistory;
+    final app = context.watch<AppProvider>();
+    final rides = app.rideHistory;
     return Scaffold(
-      appBar: AppBar(title: const Text('Ride History')),
+      appBar: AppBar(title: Text(app.t('Ride History', 'Historia ya Safari'))),
       body: rides.isEmpty
-          ? const Center(child: Text('No rides yet.'))
+          ? Center(child: Text(app.t('No rides yet.', 'Hakuna safari bado.')))
           : ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: rides.length,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final ride = rides[index];
+                final isCancelled = ride.status == 'cancelled';
                 return Card(
                   child: ListTile(
                     contentPadding: const EdgeInsets.all(16),
                     leading: CircleAvatar(
-                      child: Icon(ride.rideType == 'boda' ? Icons.two_wheeler : Icons.local_taxi),
+                      backgroundColor: isCancelled
+                          ? Colors.red.withOpacity(0.15)
+                          : Colors.green.withOpacity(0.15),
+                      child: Icon(
+                        ride.rideType == 'boda' ? Icons.two_wheeler : Icons.local_taxi,
+                        color: isCancelled ? Colors.red : Colors.green,
+                      ),
                     ),
                     title: Text(
                       '${ride.fromAddress} → ${ride.toAddress}',
@@ -34,7 +41,7 @@ class RideHistoryScreen extends StatelessWidget {
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 5),
                       child: Text(
-                        '${ride.status.toUpperCase()} · TZS ${ride.estimatedFare.toStringAsFixed(0)}\n${ride.createdAt}',
+                        '${ride.status.toUpperCase()} · TZS ${(ride.finalFare ?? ride.estimatedFare).toStringAsFixed(0)}\n${ride.createdAt.toLocal().toString().split('.').first}',
                       ),
                     ),
                     isThreeLine: true,
@@ -42,13 +49,7 @@ class RideHistoryScreen extends StatelessWidget {
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => RideDetailsScreen(
-                          rideType: ride.rideType,
-                          from: ride.fromAddress,
-                          to: ride.toAddress,
-                          fare: ride.estimatedFare,
-                          eta: ride.etaMinutes,
-                        ),
+                        builder: (_) => RideHistoryDetailsScreen(ride: ride),
                       ),
                     ),
                   ),

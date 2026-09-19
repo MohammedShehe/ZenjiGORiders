@@ -1,4 +1,4 @@
-package com.example.zenjigoriders
+package com.zenjigo.riders
 
 import io.flutter.embedding.android.FlutterActivity
 

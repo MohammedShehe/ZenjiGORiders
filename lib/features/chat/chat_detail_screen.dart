@@ -24,7 +24,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _messages = List<ChatMessage>.from(widget.conversation.messages);
+    _syncMessages();
+  }
+
+  void _syncMessages() {
+    final app = context.read<AppProvider>();
+    final live = app.conversations.where((c) => c.id == widget.conversation.id).toList();
+    final source = live.isNotEmpty ? live.first.messages : widget.conversation.messages;
+    _messages = List<ChatMessage>.from(source);
   }
 
   @override
@@ -37,17 +44,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void _send() {
     final value = _controller.text.trim();
     if (value.isEmpty) return;
+    final msg = ChatMessage(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      senderId: 'me',
+      text: value,
+      replyToId: _replyingTo?.id,
+    );
     setState(() {
-      _messages.add(ChatMessage(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        senderId: 'me',
-        text: value,
-        replyToId: _replyingTo?.id,
-      ));
+      _messages.add(msg);
       _controller.clear();
       _replyingTo = null;
       _emojiVisible = false;
     });
+    // Persist into provider so reopening the chat keeps messages
+    context.read<AppProvider>().addMessage(widget.conversation.id, msg);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
