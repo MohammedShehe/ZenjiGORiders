@@ -96,16 +96,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Future<void> _messageMenu(ChatMessage message) async {
     final mine = message.senderId == 'me';
+    final app = context.read<AppProvider>();
     final action = await showModalBottomSheet<String>(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(leading: const Icon(Icons.reply_rounded), title: const Text('Reply'), onTap: () => Navigator.pop(ctx, 'reply')),
-          if (mine) ListTile(leading: const Icon(Icons.edit_rounded), title: const Text('Edit message'), onTap: () => Navigator.pop(ctx, 'edit')),
-          ListTile(leading: const Icon(Icons.copy_rounded), title: const Text('Copy text'), onTap: () => Navigator.pop(ctx, 'copy')),
-          ListTile(leading: const Icon(Icons.checklist_rounded), title: const Text('Select'), onTap: () => Navigator.pop(ctx, 'select')),
-          if (mine) ListTile(leading: const Icon(Icons.delete_outline_rounded, color: AppColors.error), title: const Text('Delete message', style: TextStyle(color: AppColors.error)), onTap: () => Navigator.pop(ctx, 'delete')),
+          ListTile(leading: const Icon(Icons.reply_rounded), title: Text(app.t('Reply', 'Jibu')), onTap: () => Navigator.pop(ctx, 'reply')),
+          if (mine) ListTile(leading: const Icon(Icons.edit_rounded), title: Text(app.t('Edit message', 'Hariri ujumbe')), onTap: () => Navigator.pop(ctx, 'edit')),
+          ListTile(leading: const Icon(Icons.copy_rounded), title: Text(app.t('Copy text', 'Nakili maandishi')), onTap: () => Navigator.pop(ctx, 'copy')),
+          ListTile(leading: const Icon(Icons.checklist_rounded), title: Text(app.t('Select', 'Chagua')), onTap: () => Navigator.pop(ctx, 'select')),
+          if (mine) ListTile(leading: const Icon(Icons.delete_outline_rounded, color: AppColors.error), title: Text(app.t('Delete message', 'Futa ujumbe'), style: const TextStyle(color: AppColors.error)), onTap: () => Navigator.pop(ctx, 'delete')),
         ]),
       ),
     );
@@ -120,15 +121,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _editMessage(ChatMessage message) async {
+    final app = context.read<AppProvider>();
     final ctrl = TextEditingController(text: message.text);
     final value = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Edit message'),
+        title: Text(app.t('Edit message', 'Hariri ujumbe')),
         content: TextField(controller: ctrl, maxLines: 4, autofocus: true),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Save')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(app.t('Cancel', 'Ghairi'))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: Text(app.t('Save', 'Hifadhi'))),
         ],
       ),
     );
@@ -142,16 +144,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<void> _deleteMessages(Set<String> ids) async {
+    final app = context.read<AppProvider>();
     final mineOnly = ids.where((id) => _messages.any((m) => m.id == id && m.senderId == 'me')).toSet();
     if (mineOnly.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(mineOnly.length == 1 ? 'Delete message?' : 'Delete selected messages?'),
-        content: const Text('This will remove the selected messages from this chat.'),
+        title: Text(mineOnly.length == 1
+            ? app.t('Delete message?', 'Futa ujumbe?')
+            : app.t('Delete selected messages?', 'Futa ujumbe uliochaguliwa?')),
+        content: Text(app.t('This will remove the selected messages from this chat.', 'Hii itaondoa ujumbe uliochaguliwa kutoka kwenye gumzo hili.')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(app.t('Cancel', 'Ghairi'))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(app.t('Delete', 'Futa'))),
         ],
       ),
     );
@@ -195,7 +200,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ]
             : [
                 if (!widget.conversation.isSupport) IconButton(onPressed: () => _confirmDeleteChat(app), icon: const Icon(Icons.delete_outline_rounded)),
-                Row(children: [const Text('Translate', style: TextStyle(fontSize: 12)), Switch.adaptive(value: _translate, activeColor: accent, onChanged: (v) => setState(() => _translate = v))]),
+                Row(children: [Text(app.t('Translate', 'Tafsiri'), style: const TextStyle(fontSize: 12)), Switch.adaptive(value: _translate, activeColor: accent, onChanged: (v) => setState(() => _translate = v))]),
               ],
       ),
       body: Column(children: [
@@ -235,7 +240,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         borderRadius: BorderRadius.only(topLeft: const Radius.circular(17), topRight: const Radius.circular(17), bottomLeft: Radius.circular(mine ? 17 : 5), bottomRight: Radius.circular(mine ? 5 : 17)),
                       ),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        if (message.replyToId != null) Container(width: double.infinity, padding: const EdgeInsets.all(7), margin: const EdgeInsets.only(bottom: 6), decoration: BoxDecoration(color: Colors.black.withOpacity(.10), borderRadius: BorderRadius.circular(8)), child: const Text('Replying to a message', style: TextStyle(fontSize: 11))),
+                        if (message.replyToId != null) Container(width: double.infinity, padding: const EdgeInsets.all(7), margin: const EdgeInsets.only(bottom: 6), decoration: BoxDecoration(color: Colors.black.withOpacity(.10), borderRadius: BorderRadius.circular(8)), child: Text(app.t('Replying to a message', 'Kujibu ujumbe'), style: const TextStyle(fontSize: 11))),
                         Text(_displayText(message), style: TextStyle(color: mine ? Colors.white : null)),
                         const SizedBox(height: 3),
                         Align(alignment: Alignment.bottomRight, child: Text('${message.timestamp.hour.toString().padLeft(2, '0')}:${message.timestamp.minute.toString().padLeft(2, '0')}', style: TextStyle(fontSize: 10, color: mine ? Colors.white70 : Colors.grey))),
