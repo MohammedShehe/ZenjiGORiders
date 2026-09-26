@@ -29,26 +29,26 @@ class _LoginScreenState extends State<LoginScreen> {
   int _countdown = 0;
 
   final List<Map<String, String>> _countries = [
-    {'name': 'Tanzania', 'code': '+255', 'flag': '🇹🇿'},
-    {'name': 'Kenya', 'code': '+254', 'flag': '🇰🇪'},
-    {'name': 'Uganda', 'code': '+256', 'flag': '🇺🇬'},
-    {'name': 'Rwanda', 'code': '+250', 'flag': '🇷🇼'},
-    {'name': 'Burundi', 'code': '+257', 'flag': '🇧🇮'},
-    {'name': 'Mozambique', 'code': '+258', 'flag': '🇲🇿'},
-    {'name': 'Malawi', 'code': '+265', 'flag': '🇲🇼'},
-    {'name': 'Zambia', 'code': '+260', 'flag': '🇿🇲'},
-    {'name': 'South Africa', 'code': '+27', 'flag': '🇿🇦'},
-    {'name': 'Nigeria', 'code': '+234', 'flag': '🇳🇬'},
-    {'name': 'Ghana', 'code': '+233', 'flag': '🇬🇭'},
-    {'name': 'United Kingdom', 'code': '+44', 'flag': '🇬🇧'},
-    {'name': 'United States', 'code': '+1', 'flag': '🇺🇸'},
-    {'name': 'India', 'code': '+91', 'flag': '🇮🇳'},
-    {'name': 'UAE', 'code': '+971', 'flag': '🇦🇪'},
-    {'name': 'Germany', 'code': '+49', 'flag': '🇩🇪'},
-    {'name': 'France', 'code': '+33', 'flag': '🇫🇷'},
-    {'name': 'China', 'code': '+86', 'flag': '🇨🇳'},
-    {'name': 'Canada', 'code': '+1', 'flag': '🇨🇦'},
-    {'name': 'Australia', 'code': '+61', 'flag': '🇦🇺'},
+    {'name': 'Tanzania', 'code': '+255', 'flag': 'TZ'},
+    {'name': 'Kenya', 'code': '+254', 'flag': 'KE'},
+    {'name': 'Uganda', 'code': '+256', 'flag': 'UG'},
+    {'name': 'Rwanda', 'code': '+250', 'flag': 'RW'},
+    {'name': 'Burundi', 'code': '+257', 'flag': 'BI'},
+    {'name': 'Mozambique', 'code': '+258', 'flag': 'MZ'},
+    {'name': 'Malawi', 'code': '+265', 'flag': 'MW'},
+    {'name': 'Zambia', 'code': '+260', 'flag': 'ZM'},
+    {'name': 'South Africa', 'code': '+27', 'flag': 'ZA'},
+    {'name': 'Nigeria', 'code': '+234', 'flag': 'NG'},
+    {'name': 'Ghana', 'code': '+233', 'flag': 'GH'},
+    {'name': 'United Kingdom', 'code': '+44', 'flag': 'GB'},
+    {'name': 'United States', 'code': '+1', 'flag': 'US'},
+    {'name': 'India', 'code': '+91', 'flag': 'IN'},
+    {'name': 'UAE', 'code': '+971', 'flag': 'AE'},
+    {'name': 'Germany', 'code': '+49', 'flag': 'DE'},
+    {'name': 'France', 'code': '+33', 'flag': 'FR'},
+    {'name': 'China', 'code': '+86', 'flag': 'CN'},
+    {'name': 'Canada', 'code': '+1', 'flag': 'CA'},
+    {'name': 'Australia', 'code': '+61', 'flag': 'AU'},
   ];
 
   @override
@@ -134,6 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _showSnack(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 

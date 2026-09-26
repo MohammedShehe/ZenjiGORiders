@@ -65,6 +65,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       if (_scrollController.hasClients) {
         _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
       }
@@ -134,7 +135,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         ],
       ),
     );
-    ctrl.dispose();
     if (!mounted || value == null || value.isEmpty) return;
     final index = _messages.indexWhere((m) => m.id == message.id);
     if (index < 0) return;

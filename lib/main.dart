@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/beach_atmosphere.dart';
 import 'providers/app_provider.dart';
 import 'features/splash/splash_screen.dart';
 import 'features/payments/payment_methods_screen.dart';
@@ -33,6 +34,7 @@ class ZenjiGOApp extends StatelessWidget {
             darkTheme: AppTheme.darkTheme,
             themeMode: app.themeMode,
             locale: app.locale,
+            builder: (context, child) => BeachAtmosphere(child: child ?? const SizedBox.shrink()),
             home: const SplashScreen(),
             routes: {
               '/payments': (_) => const PaymentMethodsScreen(),

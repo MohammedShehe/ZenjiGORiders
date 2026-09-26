@@ -53,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final app = context.read<AppProvider>();
       if (app.currentAddress.isNotEmpty) {
         _fromCtrl.text = app.currentAddress;
@@ -136,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(app.t('Choose payment method', 'Chagua njia ya malipo'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
               const SizedBox(height: 12),
               ListTile(
-                leading: const CircleAvatar(child: Text('💵', style: TextStyle(fontSize: 20))),
+                leading: const CircleAvatar(child: Icon(Icons.payments_rounded, size: 20)),
                 title: Text(app.t('Cash', 'Fedha taslimu')),
                 subtitle: Text(app.t('Pay the driver after the ride', 'Lipa dereva baada ya safari')),
                 trailing: _paymentMethod == 'cash' ? Icon(Icons.check_circle, color: accent) : null,
@@ -240,7 +241,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: isDark
+                // Voyager keeps land warm and the ocean cool, which fits the
+              // Zanzibar palette while retaining a fully functional map.
+              urlTemplate: isDark
                     ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
                     : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                 subdomains: const ['a', 'b', 'c', 'd'],
@@ -283,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkSurface.withOpacity(0.95) : Colors.white.withOpacity(0.97),
+                      color: isDark ? AppColors.darkSurface.withOpacity(0.95) : AppColors.lightSurface.withOpacity(0.97),
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 20, offset: const Offset(0, 4)),
@@ -337,7 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Container(
               constraints: BoxConstraints(maxHeight: size.height * 0.42),
               decoration: BoxDecoration(
-                color: isDark ? AppColors.darkSurface : Colors.white,
+                color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
                 boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 24, offset: const Offset(0, -4))],
               ),
@@ -396,7 +399,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             child: Row(
                               children: [
-                                Text(r['icon'] as String, style: const TextStyle(fontSize: 28)),
+                                Icon(
+                                  r['icon'] as IconData,
+                                  size: 28,
+                                  color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
+                                ),
                                 const SizedBox(width: 14),
                                 Expanded(
                                   child: Column(
@@ -544,7 +551,7 @@ class _HomeScreenState extends State<HomeScreen> {
         avatar: Icon(icon, size: 18, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
         label: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
         onPressed: onTap,
-        backgroundColor: isDark ? AppColors.darkSurface.withOpacity(0.9) : Colors.white.withOpacity(0.95),
+        backgroundColor: isDark ? AppColors.darkSurface.withOpacity(0.9) : AppColors.lightSurface.withOpacity(0.95),
         side: BorderSide.none,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         elevation: 2,

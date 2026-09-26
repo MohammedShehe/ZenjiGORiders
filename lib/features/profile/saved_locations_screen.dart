@@ -36,7 +36,6 @@ class SavedLocationsScreen extends StatelessWidget {
   Future<void> _add(BuildContext context) async {
     final address = TextEditingController();
     String label = 'Home';
-    try {
       final saved = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => StatefulBuilder(
@@ -88,9 +87,6 @@ class SavedLocationsScreen extends StatelessWidget {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location saved.')));
         }
       }
-    } finally {
-      address.dispose();
-    }
   }
 
   @override

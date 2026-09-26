@@ -315,7 +315,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         });
       },
     );
-    feedbackCtrl.dispose();
     if (!mounted) return;
 
     final r = (result?['rating'] as int?) ?? 5;
@@ -391,7 +390,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         ),
       ),
     );
-    manual.dispose();
     if (!mounted || result == null) return;
     final confirm = await showDialog<bool>(
       context: context,
@@ -462,7 +460,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         ),
       ),
     );
-    manual.dispose();
     if (!mounted || result == null) return;
     await showDialog(
       context: context,

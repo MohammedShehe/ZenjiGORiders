@@ -199,7 +199,38 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               .animate()
               .fadeIn(duration: 600.ms)
               .slideY(begin: -0.2, end: 0),
-          const SizedBox(height: 32),
+          const SizedBox(height: 20),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: SizedBox(
+              height: 190,
+              width: double.infinity,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.asset('assets/images/zanzibar_stone_town_aerial.jpg', fit: BoxFit.cover),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, AppColors.deepNavy.withOpacity(0.62)],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 18,
+                    bottom: 14,
+                    child: Text(
+                      'Zanzibar • Unguja • Pemba',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ).animate().fadeIn(duration: 650.ms).scale(begin: const Offset(0.98, 0.98)),
+          const SizedBox(height: 24),
           Text(
             app.t('Welcome to ZenjiGO', 'Karibu ZenjiGO'),
             textAlign: TextAlign.center,

@@ -187,22 +187,30 @@ class _SplashScreenState extends State<SplashScreen>
     // The splash always uses the brand-navy treatment so it hands off
     // seamlessly from the native launch screen with zero color flash.
     return Scaffold(
-      backgroundColor: AppColors.darkBg,
+      backgroundColor: Colors.transparent,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Soft brand gradient behind everything.
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  AppColors.darkBg,
-                  Color(0xFF0E2340),
-                  AppColors.darkBg,
-                ],
-                stops: [0.0, 0.55, 1.0],
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/zanzibar_beach_hero.jpg',
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+            ),
+          ),
+          // Deep-ocean overlay keeps the animated logo highly legible.
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.deepNavy.withOpacity(0.76),
+                    AppColors.darkBg.withOpacity(0.72),
+                    AppColors.darkBg.withOpacity(0.94),
+                  ],
+                ),
               ),
             ),
           ),

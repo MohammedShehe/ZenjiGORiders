@@ -1,31 +1,36 @@
 import 'package:flutter/material.dart';
 
+/// Zanzibar coastal palette: ocean, lagoon, coral and warm sand.
 class AppColors {
-  // Dark Mode
-  static const Color darkBg = Color(0xFF0B1A33);
-  static const Color darkSurface = Color(0xFF12243F);
-  static const Color darkCard = Color(0xFF1A2F4D);
-  static const Color aquaGreen = Color(0xFF4FC3A1);
-  static const Color skyBlue = Color(0xFF3BA9E0);
-  static const Color offWhite = Color(0xFFF2F4F7);
-  static const Color brightGreen = Color(0xFF34A853);
-  static const Color sunsetOrange = Color(0xFFF9A825);
-  static const Color darkTextSecondary = Color(0xFFA0AEC0);
+  // Dark / evening ocean
+  static const Color darkBg = Color(0xFF06283A);
+  static const Color darkSurface = Color(0xD9133D4C);
+  static const Color darkCard = Color(0xE61A4B58);
+  static const Color aquaGreen = Color(0xFF31D0C6);
+  static const Color skyBlue = Color(0xFF45B9E8);
+  static const Color offWhite = Color(0xFFF7FBFA);
+  static const Color brightGreen = Color(0xFF0FAE9B);
+  static const Color sunsetOrange = Color(0xFFF39A5A);
+  static const Color darkTextSecondary = Color(0xFFB7D2D4);
 
-  // Light Mode
-  static const Color lightBg = Color(0xFFF9FAFB);
-  static const Color lightSurface = Color(0xFFFFFFFF);
-  static const Color lightCard = Color(0xFFF0F4F8);
-  static const Color deepNavy = Color(0xFF14213D);
-  static const Color oceanTeal = Color(0xFF007B8A);
-  static const Color charcoal = Color(0xFF333333);
-  static const Color warmYellow = Color(0xFFFDB813);
-  static const Color lightTextSecondary = Color(0xFF6B7280);
+  // Light / beach daylight
+  static const Color lightBg = Color(0x00FFFFFF);
+  static const Color lightSurface = Color(0xF7FFFFFF);
+  static const Color lightCard = Color(0xDFFFFFFF);
+  static const Color deepNavy = Color(0xFF073B4C);
+  static const Color oceanTeal = Color(0xFF008F91);
+  static const Color charcoal = Color(0xFF20363D);
+  static const Color warmYellow = Color(0xFFF7C65C);
+  static const Color lightTextSecondary = Color(0xFF5E7478);
+  static const Color sand = Color(0xFFF4D9A6);
+  static const Color coral = Color(0xFFE98263);
+  static const Color lagoon = Color(0xFF39C6C0);
+  static const Color seaFoam = Color(0xFFE7FAF6);
 
   // Shared
-  static const Color error = Color(0xFFE53935);
-  static const Color success = Color(0xFF43A047);
-  static const Color warning = Color(0xFFFB8C00);
+  static const Color error = Color(0xFFD94A4A);
+  static const Color success = Color(0xFF149B72);
+  static const Color warning = Color(0xFFE69A2D);
   static const Color white = Color(0xFFFFFFFF);
   static const Color black = Color(0xFF000000);
   static const Color transparent = Colors.transparent;

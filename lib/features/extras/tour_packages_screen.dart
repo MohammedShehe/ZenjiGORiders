@@ -5,18 +5,17 @@ class TourPackagesScreen extends StatelessWidget {
   const TourPackagesScreen({super.key});
 
   static const packages = [
-    {'title': 'Half-Day Stone Town', 'price': 45000, 'hours': 4, 'icon': '🏛️'},
-    {'title': 'Full-Day Island Tour', 'price': 90000, 'hours': 8, 'icon': '🏝️'},
-    {'title': 'Nungwi Sunset Ride', 'price': 35000, 'hours': 3, 'icon': '🌅'},
-    {'title': 'Spice Farm Experience', 'price': 55000, 'hours': 5, 'icon': '🌿'},
-    {'title': 'Pemba Island Adventure', 'price': 150000, 'hours': 10, 'icon': '🚤'},
+    {'title': 'Half-Day Stone Town', 'price': 45000, 'hours': 4, 'icon': Icons.account_balance_rounded},
+    {'title': 'Full-Day Island Tour', 'price': 90000, 'hours': 8, 'icon': Icons.beach_access_rounded},
+    {'title': 'Nungwi Sunset Ride', 'price': 35000, 'hours': 3, 'icon': Icons.wb_twilight_rounded},
+    {'title': 'Spice Farm Experience', 'price': 55000, 'hours': 5, 'icon': Icons.local_florist_rounded},
+    {'title': 'Pemba Island Adventure', 'price': 150000, 'hours': 10, 'icon': Icons.directions_boat_filled_rounded},
   ];
 
   Future<void> _configure(BuildContext context, Map<String, Object> package) async {
     final pickup = TextEditingController();
     int tourists = 1;
     TimeOfDay? pickupTime;
-    try {
       final result = await showDialog<_TourBooking>(
         context: context,
         builder: (dialogContext) => StatefulBuilder(
@@ -104,12 +103,9 @@ class TourPackagesScreen extends StatelessWidget {
           ),
         );
       }
-    } finally {
-      pickup.dispose();
     }
-  }
 
-  @override
+    @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Tour Packages')),
@@ -122,7 +118,7 @@ class TourPackagesScreen extends StatelessWidget {
           return Card(
             child: ListTile(
               contentPadding: const EdgeInsets.all(14),
-              leading: Text(package['icon'] as String, style: const TextStyle(fontSize: 36)),
+              leading: Icon(package['icon'] as IconData, size: 36, color: Theme.of(context).colorScheme.primary),
               title: Text(package['title'] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
               subtitle: Text('${package['hours']} hours · TZS ${package['price']}'),
               trailing: ElevatedButton(onPressed: () => _configure(context, package), child: const Text('Select')),

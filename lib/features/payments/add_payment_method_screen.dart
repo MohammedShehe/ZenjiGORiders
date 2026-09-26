@@ -85,11 +85,16 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: Row(
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Icon(Icons.verified_rounded, color: AppColors.brightGreen),
-            const SizedBox(width: 10),
-            Text(app.t('Payment method added', 'Njia ya malipo imeongezwa')),
+            const SizedBox(height: 10),
+            Text(
+              app.t('Payment method added', 'Njia ya malipo imeongezwa'),
+              softWrap: true,
+            ),
           ],
         ),
         content: Text(app.t(

@@ -37,16 +37,16 @@ class _SignupScreenState extends State<SignupScreen> {
   String? _ward;
 
   final List<Map<String, String>> _countries = [
-    {'name': 'Tanzania', 'code': '+255', 'flag': '🇹🇿'},
-    {'name': 'Kenya', 'code': '+254', 'flag': '🇰🇪'},
-    {'name': 'Uganda', 'code': '+256', 'flag': '🇺🇬'},
-    {'name': 'Rwanda', 'code': '+250', 'flag': '🇷🇼'},
-    {'name': 'United Kingdom', 'code': '+44', 'flag': '🇬🇧'},
-    {'name': 'United States', 'code': '+1', 'flag': '🇺🇸'},
-    {'name': 'India', 'code': '+91', 'flag': '🇮🇳'},
-    {'name': 'UAE', 'code': '+971', 'flag': '🇦🇪'},
-    {'name': 'Germany', 'code': '+49', 'flag': '🇩🇪'},
-    {'name': 'South Africa', 'code': '+27', 'flag': '🇿🇦'},
+    {'name': 'Tanzania', 'code': '+255', 'flag': 'TZ'},
+    {'name': 'Kenya', 'code': '+254', 'flag': 'KE'},
+    {'name': 'Uganda', 'code': '+256', 'flag': 'UG'},
+    {'name': 'Rwanda', 'code': '+250', 'flag': 'RW'},
+    {'name': 'United Kingdom', 'code': '+44', 'flag': 'GB'},
+    {'name': 'United States', 'code': '+1', 'flag': 'US'},
+    {'name': 'India', 'code': '+91', 'flag': 'IN'},
+    {'name': 'UAE', 'code': '+971', 'flag': 'AE'},
+    {'name': 'Germany', 'code': '+49', 'flag': 'DE'},
+    {'name': 'South Africa', 'code': '+27', 'flag': 'ZA'},
   ];
 
   @override
@@ -156,7 +156,10 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
-  void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  void _snack(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
 
   void _showSearchablePicker({
     required String title,
