@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/credit_card_preview.dart';
 import '../../core/widgets/loading_button.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_provider.dart';
@@ -113,8 +114,14 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
   Widget _methodTile(PaymentMethodModel method, Color accent) {
     final app = context.read<AppProvider>();
     final isCard = method.type == 'bank';
-    final title = isCard ? app.t('Bank Card', 'Kadi ya benki') : (method.provider ?? 'Mobile Money');
-    final subtitle = isCard ? '•••• ${method.cardLast4 ?? '----'}${method.expiry != null ? '  ·  ${method.expiry}' : ''}' : (method.accountNumber ?? '');
+    final brand = cardBrandFromKey(method.cardBrand);
+    final title = isCard
+        ? (brand == CardBrand.unknown ? app.t('Bank Card', 'Kadi ya benki') : brand.label)
+        : (method.provider ?? 'Mobile Money');
+    final holder = (method.cardHolder ?? '').trim();
+    final subtitle = isCard
+        ? '•••• ${method.cardLast4 ?? '----'}${method.expiry != null ? '  ·  ${method.expiry}' : ''}${holder.isNotEmpty ? '\n${holder.toUpperCase()}' : ''}'
+        : (method.accountNumber ?? '');
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(

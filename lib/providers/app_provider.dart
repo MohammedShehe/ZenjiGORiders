@@ -437,27 +437,10 @@ class AppProvider extends ChangeNotifier {
     if (_user == null) return;
     final methods = List<PaymentMethodModel>.from(_user!.paymentMethods);
     final shouldDefault = method.isDefault || methods.isEmpty;
-    final normalized = PaymentMethodModel(
-      id: method.id,
-      type: method.type,
-      provider: method.provider,
-      accountNumber: method.accountNumber,
-      cardLast4: method.cardLast4,
-      expiry: method.expiry,
-      isDefault: shouldDefault,
-    );
+    final normalized = method.copyWith(isDefault: shouldDefault);
     if (shouldDefault) {
       for (var i = 0; i < methods.length; i++) {
-        final old = methods[i];
-        methods[i] = PaymentMethodModel(
-          id: old.id,
-          type: old.type,
-          provider: old.provider,
-          accountNumber: old.accountNumber,
-          cardLast4: old.cardLast4,
-          expiry: old.expiry,
-          isDefault: false,
-        );
+        methods[i] = methods[i].copyWith(isDefault: false);
       }
     }
     methods.add(normalized);
@@ -469,16 +452,7 @@ class AppProvider extends ChangeNotifier {
     if (_user == null) return;
     final methods = _user!.paymentMethods.where((m) => m.id != id).toList();
     if (methods.isNotEmpty && !methods.any((m) => m.isDefault)) {
-      final first = methods.first;
-      methods[0] = PaymentMethodModel(
-        id: first.id,
-        type: first.type,
-        provider: first.provider,
-        accountNumber: first.accountNumber,
-        cardLast4: first.cardLast4,
-        expiry: first.expiry,
-        isDefault: true,
-      );
+      methods[0] = methods.first.copyWith(isDefault: true);
     }
     _user = _user!.copyWith(paymentMethods: methods);
     notifyListeners();
@@ -486,17 +460,9 @@ class AppProvider extends ChangeNotifier {
 
   void setDefaultPaymentMethod(String id) {
     if (_user == null) return;
-    final methods = _user!.paymentMethods.map((m) {
-      return PaymentMethodModel(
-        id: m.id,
-        type: m.type,
-        provider: m.provider,
-        accountNumber: m.accountNumber,
-        cardLast4: m.cardLast4,
-        expiry: m.expiry,
-        isDefault: m.id == id,
-      );
-    }).toList();
+    final methods = _user!.paymentMethods
+        .map((m) => m.copyWith(isDefault: m.id == id))
+        .toList();
     _user = _user!.copyWith(paymentMethods: methods);
     notifyListeners();
   }

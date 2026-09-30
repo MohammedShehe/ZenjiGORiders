@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/credit_card_preview.dart';
 import '../../core/widgets/loading_button.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_provider.dart';
@@ -23,23 +25,76 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
   final _cardCtrl = TextEditingController();
   final _expiryCtrl = TextEditingController();
   final _cvvCtrl = TextEditingController();
+  final _cvvFocus = FocusNode();
+
+  bool _flipped = false; // card showing its CVV side
+  bool _submitted = false; // show field errors after the first save attempt
+
+  @override
+  void initState() {
+    super.initState();
+    // Every keystroke rebuilds the screen, which redraws the live card preview.
+    for (final c in [_holderCtrl, _cardCtrl, _expiryCtrl, _cvvCtrl]) {
+      c.addListener(_refresh);
+    }
+    _cvvFocus.addListener(() {
+      if (mounted) setState(() => _flipped = _cvvFocus.hasFocus);
+    });
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
+    for (final c in [_holderCtrl, _cardCtrl, _expiryCtrl, _cvvCtrl]) {
+      c.removeListener(_refresh);
+    }
     _phoneCtrl.dispose();
     _holderCtrl.dispose();
     _cardCtrl.dispose();
     _expiryCtrl.dispose();
     _cvvCtrl.dispose();
+    _cvvFocus.dispose();
     super.dispose();
   }
+
+  String get _cardDigits => _cardCtrl.text.replaceAll(RegExp(r'\D'), '');
+  CardBrand get _brand => detectCardBrand(_cardDigits);
 
   bool _validPhone(String value) {
     final digits = value.replaceAll(RegExp(r'\D'), '');
     return RegExp(r'^(255|0)?(6|7|8)[0-9]{8}').hasMatch(digits);
   }
 
-  bool _validCard(String value) => value.replaceAll(' ', '').length == 16;
+  String? _holderError(AppProvider app) => _holderCtrl.text.trim().length < 2
+      ? app.t('Enter the name as shown on the card', 'Weka jina kama lilivyo kwenye kadi')
+      : null;
+
+  String? _numberError(AppProvider app) => _cardDigits.length != _brand.numberLength
+      ? app.t('Enter all ${_brand.numberLength} digits', 'Weka tarakimu zote ${_brand.numberLength}')
+      : null;
+
+  String? _expiryError(AppProvider app) {
+    final m = RegExp(r'^(\d{2})/(\d{2})$').firstMatch(_expiryCtrl.text);
+    if (m == null) return app.t('Use MM/YY', 'Tumia MM/YY');
+    final month = int.parse(m.group(1)!);
+    final year = 2000 + int.parse(m.group(2)!);
+    final now = DateTime.now();
+    if (month < 1 || month > 12) return app.t('Invalid month', 'Mwezi si sahihi');
+    if (year < now.year || (year == now.year && month < now.month)) {
+      return app.t('This card has expired', 'Kadi hii imeisha muda');
+    }
+    return null;
+  }
+
+  String? _cvvError(AppProvider app) => _cvvCtrl.text.length != _brand.cvvLength
+      ? app.t('${_brand.cvvLength} digits', 'Tarakimu ${_brand.cvvLength}')
+      : null;
+
+  bool _cardFormValid(AppProvider app) =>
+      _holderError(app) == null && _numberError(app) == null && _expiryError(app) == null && _cvvError(app) == null;
 
   Future<void> _save() async {
     final app = context.read<AppProvider>();
@@ -51,10 +106,8 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
         return;
       }
     } else {
-      if (_holderCtrl.text.trim().length < 2 ||
-          !_validCard(_cardCtrl.text) ||
-          !RegExp(r'^\d{2}/\d{2}$').hasMatch(_expiryCtrl.text.trim()) ||
-          !RegExp(r'^\d{3,4}$').hasMatch(_cvvCtrl.text.trim())) {
+      if (!_cardFormValid(app)) {
+        setState(() => _submitted = true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(app.t('Complete the card details correctly.', 'Jaza taarifa za kadi kwa usahihi.'))),
         );
@@ -70,10 +123,12 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
     final method = PaymentMethodModel(
       id: id,
       type: _type,
-      provider: _type == 'momo' ? _provider : 'Bank Card',
+      provider: _type == 'momo' ? _provider : _brand.label,
       accountNumber: _type == 'momo' ? _phoneCtrl.text.trim() : null,
-      cardLast4: _type == 'bank' ? _cardCtrl.text.replaceAll(' ', '').substring(12) : null,
+      cardLast4: _type == 'bank' ? _cardDigits.substring(_cardDigits.length - 4) : null,
       expiry: _type == 'bank' ? _expiryCtrl.text.trim() : null,
+      cardHolder: _type == 'bank' ? _holderCtrl.text.trim() : null,
+      cardBrand: _type == 'bank' ? _brand.name : null,
       isDefault: _makeDefault,
     );
     app.addPaymentMethod(method);
@@ -114,15 +169,21 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
     final app = context.watch<AppProvider>();
     final dark = app.isDark;
     final accent = dark ? AppColors.aquaGreen : AppColors.oceanTeal;
+    final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
       appBar: AppBar(title: Text(app.t('Add payment method', 'Ongeza njia ya malipo'))),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: Column(
+          children: [
+            if (_type == 'bank') _previewHeader(keyboardOpen),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
@@ -171,14 +232,72 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
                 const SizedBox(height: 8),
                 Text(app.t('Use the number registered with the selected mobile-money service.', 'Tumia namba iliyosajiliwa kwenye huduma uliyochagua.'), style: TextStyle(fontSize: 12, color: dark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary)),
               ] else ...[
-                TextField(controller: _holderCtrl, textCapitalization: TextCapitalization.words, decoration: InputDecoration(labelText: app.t('Card holder name', 'Jina la mwenye kadi'))),
+                Text(app.t('Tap the card to flip it. Your details update on it as you type.', 'Gusa kadi ili kuigeuza. Taarifa zako zinaonekana kwenye kadi unapoandika.'), style: TextStyle(fontSize: 12, color: dark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary)),
                 const SizedBox(height: 14),
-                TextField(controller: _cardCtrl, keyboardType: TextInputType.number, maxLength: 19, decoration: InputDecoration(labelText: app.t('Card number', 'Namba ya kadi'), counterText: ''), onChanged: (v) => setState(() {})),
+                TextField(
+                  controller: _holderCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.next,
+                  autocorrect: false,
+                  inputFormatters: cardHolderFormatters,
+                  decoration: InputDecoration(
+                    labelText: app.t('Card holder name', 'Jina la mwenye kadi'),
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                    errorText: _submitted ? _holderError(app) : null,
+                  ),
+                ),
                 const SizedBox(height: 14),
-                Row(children: [
-                  Expanded(child: TextField(controller: _expiryCtrl, keyboardType: TextInputType.number, maxLength: 5, decoration: const InputDecoration(labelText: 'Expiry (MM/YY)', counterText: ''))),
+                TextField(
+                  controller: _cardCtrl,
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  inputFormatters: [CardNumberInputFormatter()],
+                  decoration: InputDecoration(
+                    labelText: app.t('Card number', 'Namba ya kadi'),
+                    prefixIcon: const Icon(Icons.credit_card_rounded),
+                    suffixText: _brand == CardBrand.unknown ? null : _brand.label,
+                    errorText: _submitted ? _numberError(app) : null,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _expiryCtrl,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      maxLength: 5,
+                      inputFormatters: [ExpiryInputFormatter()],
+                      decoration: InputDecoration(
+                        labelText: app.t('Expiry (MM/YY)', 'Mwisho (MM/YY)'),
+                        counterText: '',
+                        errorText: _submitted ? _expiryError(app) : null,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 12),
-                  Expanded(child: TextField(controller: _cvvCtrl, keyboardType: TextInputType.number, obscureText: true, maxLength: 4, decoration: const InputDecoration(labelText: 'CVV', counterText: ''))),
+                  Expanded(
+                    child: TextField(
+                      controller: _cvvCtrl,
+                      focusNode: _cvvFocus,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      obscureText: true,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      maxLength: _brand.cvvLength,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'CVV',
+                        counterText: '',
+                        errorText: _submitted ? _cvvError(app) : null,
+                      ),
+                    ),
+                  ),
                 ]),
               ],
               const SizedBox(height: 12),
@@ -192,7 +311,37 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
               ),
               const SizedBox(height: 18),
               LoadingButton(text: app.t('Save payment method', 'Hifadhi njia ya malipo'), icon: Icons.lock_rounded, isLoading: _loading, onPressed: _save),
-            ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Live card mockup pinned above the form so it stays visible while typing.
+  /// It shrinks while the keyboard is open to leave room for the fields.
+  Widget _previewHeader(bool keyboardOpen) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 6, 20, 4),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: keyboardOpen ? 230 : 350),
+            child: CreditCardPreview(
+              holder: _holderCtrl.text,
+              number: _cardCtrl.text,
+              expiry: _expiryCtrl.text,
+              cvv: _cvvCtrl.text,
+              brand: _brand,
+              showBack: _flipped,
+              onTap: () => setState(() => _flipped = !_flipped),
+            ),
           ),
         ),
       ),

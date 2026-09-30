@@ -94,6 +94,8 @@ class PaymentMethodModel {
   final String? accountNumber;
   final String? cardLast4;
   final String? expiry;
+  final String? cardHolder;
+  final String? cardBrand; // visa, mastercard, amex, discover, unknown
   final bool isDefault;
 
   PaymentMethodModel({
@@ -103,8 +105,22 @@ class PaymentMethodModel {
     this.accountNumber,
     this.cardLast4,
     this.expiry,
+    this.cardHolder,
+    this.cardBrand,
     this.isDefault = false,
   });
+
+  PaymentMethodModel copyWith({bool? isDefault}) => PaymentMethodModel(
+        id: id,
+        type: type,
+        provider: provider,
+        accountNumber: accountNumber,
+        cardLast4: cardLast4,
+        expiry: expiry,
+        cardHolder: cardHolder,
+        cardBrand: cardBrand,
+        isDefault: isDefault ?? this.isDefault,
+      );
 }
 
 class SavedLocationModel {
