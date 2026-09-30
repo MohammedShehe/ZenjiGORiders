@@ -174,16 +174,40 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
     return Scaffold(
       appBar: AppBar(title: Text(app.t('Add payment method', 'Ongeza njia ya malipo'))),
       body: SafeArea(
-        child: Column(
-          children: [
-            if (_type == 'bank') _previewHeader(keyboardOpen),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+        child: LayoutBuilder(builder: (context, box) {
+          // On short viewports (landscape phones, small browser windows) a pinned
+          // card would leave no room for the fields, so it scrolls with the form.
+          final pinPreview = _type == 'bank' && box.maxHeight >= 440;
+          final scrollPreview = _type == 'bank' && !pinPreview;
+          return Column(
+            children: [
+              if (pinPreview) _previewHeader(keyboardOpen),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (scrollPreview) ...[
+                        _previewHeader(true),
+                        const SizedBox(height: 10),
+                      ],
+                      ..._formChildren(app, dark, accent),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  List<Widget> _formChildren(AppProvider app, bool dark, Color accent) {
+    return [
+
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
@@ -311,14 +335,8 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
               ),
               const SizedBox(height: 18),
               LoadingButton(text: app.t('Save payment method', 'Hifadhi njia ya malipo'), icon: Icons.lock_rounded, isLoading: _loading, onPressed: _save),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+
+    ];
   }
 
   /// Live card mockup pinned above the form so it stays visible while typing.

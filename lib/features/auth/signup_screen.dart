@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +25,7 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _otpSent = false;
   bool _useWhatsApp = false;
   int _countdown = 0;
+  Timer? _countdownTimer;
 
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
@@ -51,6 +53,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _pageController.dispose();
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
@@ -76,11 +79,14 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   void _startCountdown() {
-    Future.doWhile(() async {
-      await Future.delayed(const Duration(seconds: 1));
-      if (!mounted || _countdown <= 0) return false;
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted || _countdown <= 1) {
+        t.cancel();
+        if (mounted) setState(() => _countdown = 0);
+        return;
+      }
       setState(() => _countdown--);
-      return _countdown > 0;
     });
   }
 
