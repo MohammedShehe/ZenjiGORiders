@@ -74,9 +74,9 @@ class OfferDetailsScreen extends StatelessWidget {
     );
   }
 
-  void _applyAndGoHome(BuildContext context) {
+  Future<void> _applyAndGoHome(BuildContext context) async {
     final app = context.read<AppProvider>();
-    app.applyPromo(code, discount);
+    await app.applyPromo(code, discount);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(app.t('Promo $code applied', 'Promo $code imetumika'))),
     );
@@ -116,7 +116,7 @@ class OfferDetailsScreen extends StatelessWidget {
             leading: const Icon(Icons.local_taxi),
             title: Text(app.t('Use for a Ride', 'Tumia kwa Safari')),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => _applyAndGoHome(context),
+            onTap: () { _applyAndGoHome(context); },
           ),
           ListTile(
             leading: const Icon(Icons.local_shipping),

@@ -1,44 +1,53 @@
-# ZenjiGO Rider — Flutter Frontend
+# ZenjiGO Riders
 
-A polished frontend prototype for the ZenjiGO rider app, designed to match the ZenjiGO Driver visual system.
+Flutter Rider app for **ZenjiGO** — wired to the live ZenjiGO backend API.
 
-## Included flows
+## Integrated flows
 
-- Dark mode by default + full light mode
-- English / Kiswahili UI preference
-- Onboarding, location permissions and rider registration
-- Zanzibar location hierarchy and profile setup
-- Four-tab shell: Home, Wallet, Chat, Profile
-- Map-based ride booking with Boda, Bajaji, Taxi, Airport and Parcel services
-- Nearby-driver map markers and ride lifecycle simulation
-- Driver acceptance, approach, arrival, live trip progress and receipt
-- Ride cancellation and driver reporting flows
-- Driver chat and ZenjiGO Support chat
-- WhatsApp-style replies, message selection/deletion, edit, copy, emoji and translation preview
-- Saved locations and ride history
-- Promotions and referral flows
-- Payment method management
-  - Mobile Money: M-Pesa, Mix by Yas, Airtel Money, HaloPesa
-  - Bank Card
-  - Default payment method management
-  - Validation and confirmation states
-  - Safe deletion rules
-- ZenjiGO Wallet
-  - Top-up amount selection
-  - Saved payment method selection
-  - Add-payment flow directly from top-up
-  - Simulated secure processing + success receipt
-  - Transaction history
-- Responsive dark/light styling using the same ZenjiGO palette and typography family as the Driver app
+| Feature | API |
+|---------|-----|
+| Send / verify OTP (login & signup) | `POST /auth/rider/send-otp`, `POST /auth/rider/verify-otp` |
+| Profile load / update | `GET/PATCH /rider/me` |
+| Ride quote | `POST /rider/rides/quote` |
+| Create ride | `POST /rider/rides` |
+| Cancel ride | `POST /rider/rides/:id/cancel` |
+| Rate ride | `POST /rider/rides/:id/rating` |
+| Ride history | `GET /rider/rides` |
+| Wallet balance & transactions | `GET /rider/wallet`, `GET /rider/wallet/transactions` |
+| Wallet top-up | `POST /rider/wallet/topup` |
+| Apply promo | `POST /promos/apply` |
+| Book parcel | `POST /rider/parcels` |
+| Tour packages / book | `GET /rider/tour-packages`, `POST /rider/tours` |
+| Saved locations | `GET/POST/DELETE /rider/saved-locations` |
+| Payment methods | `GET/POST/DELETE /rider/payment-methods` |
+| Chat | `GET /rider/chat`, messages endpoints |
+| JWT refresh | automatic on 401 |
+| Sign out | clears tokens + logout |
 
-## Frontend/backend boundary
+## Configure API URL
 
-This project intentionally contains frontend/demo state only. Payment gateways, OTP delivery, production maps/geocoding, real-time sockets, push notifications and backend persistence should be connected through the existing provider/state layer when the backend APIs are ready.
+```bash
+flutter run --dart-define=ZENJIGO_API_URL=http://10.0.2.2:5000/api/v1
+```
+
+- Android emulator: `http://10.0.2.2:5000/api/v1`
+- iOS simulator: `http://localhost:5000/api/v1`
+- Physical device: your machine LAN IP
 
 ## Run
 
 ```bash
+# Backend first
+cd ZenjiGOAdmin/backend && npm install && npm run migrate && npm run seed && npm run dev
+
+# Rider app
+cd ZenjiGORiders
 flutter pub get
-flutter analyze
-flutter run
+flutter run --dart-define=ZENJIGO_API_URL=http://10.0.2.2:5000/api/v1
 ```
+
+## Notes
+
+- Map uses `flutter_map` (OpenStreetMap tiles) — no Google key required.
+- Geolocator is available for real GPS; onboarding grants location when possible.
+- Payment top-up creates a pending payment on the server; Admin can complete it, or wire a real PSP webhook later.

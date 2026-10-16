@@ -7,6 +7,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/loading_button.dart';
 import '../../core/constants/location_data.dart';
 import '../../models/user_model.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
 import '../home/main_shell.dart';
 import '../payments/payment_methods_screen.dart';
@@ -68,13 +70,19 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _otpSent = true;
-      _countdown = 60;
-    });
+    try {
+      final phone = '$_countryCode${_phoneCtrl.text.trim()}';
+      await ApiClient.request('POST','/auth/rider/send-otp',body:{
+        'phone': phone,
+        'channel': _useWhatsApp ? 'whatsapp' : 'sms',
+      });
+      if (!mounted) return;
+      setState(() { _otpSent = true; _countdown = 60; });
+    } catch(e) {
+      if (mounted) _snack(e.toString().replaceFirst('Exception: ',''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
     _startCountdown();
   }
 
@@ -96,13 +104,26 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _step = 1;
-    });
-    _pageController.nextPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+    try {
+      final phone = '$_countryCode${_phoneCtrl.text.trim()}';
+      final r = await ApiClient.request('POST','/auth/rider/verify-otp',body:{
+        'phone': phone,
+        'code': _otpCtrl.text.trim(),
+        'fullName': _nameCtrl.text.trim(),
+        'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+      });
+      final data = Map<String,dynamic>.from(r['data'] ?? {});
+      await ApiClient.saveTokens(data);
+      final user = UserModel.fromJson(Map<String,dynamic>.from(data['user'] ?? {}));
+      await context.read<AppProvider>().login(user);
+      if (!mounted) return;
+      setState(() => _step = 1);
+      _pageController.nextPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+    } catch(e) {
+      if (mounted) _snack(e.toString().replaceFirst('Exception: ',''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _completeSignup({bool skipPayment = false}) async {
@@ -111,35 +132,27 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 1000));
-    if (!mounted) return;
+    try {
+      final r = await ApiClient.request('PATCH','/rider/me',body:{
+        'fullName': _nameCtrl.text.trim(),
+        'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+        'island': _island,
+        'region': _region,
+        'district': _district,
+        'ward': _ward,
+      });
+      final user = UserModel.fromJson(Map<String,dynamic>.from(r['data'] ?? {}));
+      await context.read<AppProvider>().login(user);
+      if (!mounted) return;
+      setState(() => _loading = false);
 
-    final user = UserModel(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      fullName: _nameCtrl.text.trim(),
-      phone: '$_countryCode${_phoneCtrl.text.trim()}',
-      email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
-      island: _island!,
-      region: _region!,
-      district: _district!,
-      ward: _ward!,
-      walletBalance: 0,
-      savedLocations: [
-        SavedLocationModel(
-          id: 'home',
-          label: 'Home',
-          address: '$_ward, $_district',
-          island: _island!,
-          region: _region!,
-          district: _district!,
-          ward: _ward!,
-        ),
-      ],
-    );
-    await context.read<AppProvider>().login(user);
-    if (!mounted) return;
-    setState(() => _loading = false);
-
+    } catch(e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _snack(e.toString().replaceFirst('Exception: ',''));
+      }
+      return;
+    }
     if (skipPayment) {
       _goHome();
     } else {

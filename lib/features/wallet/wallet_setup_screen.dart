@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/loading_button.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_provider.dart';
+import '../../core/api/rider_api.dart';
 import '../payments/add_payment_method_screen.dart';
 
 class WalletSetupScreen extends StatefulWidget {
@@ -139,9 +140,12 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
     if (method == null) return;
 
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
+    final ok = await app.topUpWalletLive(amount: _amount, paymentMethod: method.type);
     if (!mounted) return;
-    app.topUpWallet(amount: _amount, paymentMethod: method.type, provider: method.provider);
+    if (!ok) {
+      // fallback local credit for offline demo
+      app.topUpWallet(amount: _amount, paymentMethod: method.type, provider: method.provider);
+    }
     setState(() => _loading = false);
 
     await showDialog<void>(

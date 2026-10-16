@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../models/ride_model.dart';
+import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
 import '../chat/chat_detail_screen.dart';
 import 'ride_receipt_screen.dart';
@@ -67,7 +68,29 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       _ride = widget.existingRide!;
       if (_ride.isActive) _continueLifecycle();
     } else {
-      _ride = app.createRide(
+      // Temporary placeholder until API returns
+      _ride = RideModel(
+        id: 'pending',
+        rideType: widget.rideType ?? 'boda',
+        fromAddress: widget.from ?? app.currentAddress,
+        toAddress: widget.to ?? '',
+        fromLat: widget.fromLat ?? app.currentLat,
+        fromLng: widget.fromLng ?? app.currentLng,
+        toLat: widget.toLat ?? app.currentLat,
+        toLng: widget.toLng ?? app.currentLng,
+        estimatedFare: widget.fare ?? 5000,
+        etaMinutes: widget.eta ?? 15,
+        status: 'searching',
+        paymentMethod: widget.paymentMethod ?? 'cash',
+      );
+      _bookLive();
+    }
+  }
+
+  Future<void> _bookLive() async {
+    final app = context.read<AppProvider>();
+    try {
+      final ride = await app.createRide(
         rideType: widget.rideType ?? 'boda',
         fromAddress: widget.from ?? app.currentAddress,
         toAddress: widget.to ?? '',
@@ -81,7 +104,15 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         promoCode: widget.promoCode,
         discount: widget.discount,
       );
+      if (!mounted) return;
+      setState(() => _ride = ride);
       _startSearch();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+      Navigator.of(context).maybePop();
     }
   }
 
@@ -405,7 +436,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     if (confirm == true && mounted) {
       _statusTimer?.cancel();
       _driverMoveTimer?.cancel();
-      app.cancelActiveRide(reason: result);
+      await app.cancelActiveRide(reason: result);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(app.t('Ride cancelled successfully.', 'Safari imeghairiwa kikamilifu.'))),
       );
@@ -659,8 +690,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: () {
-                  context.read<AppProvider>().cancelActiveRide(reason: 'No driver');
+                onPressed: () async {
+                  await context.read<AppProvider>().cancelActiveRide(reason: 'No driver');
                   Navigator.pop(context);
                 },
                 child: Text(app.t('Cancel', 'Ghairi')),

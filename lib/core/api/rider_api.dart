@@ -1,0 +1,228 @@
+import 'api_client.dart';
+
+class RiderApi {
+  /* -------------------- Auth -------------------- */
+  static Future<Map<String, dynamic>> sendOtp(
+    String phone, {
+    String channel = 'sms',
+    String purpose = 'login',
+  }) async {
+    final d = await ApiClient.data('POST', '/auth/rider/send-otp', body: {
+      'phone': phone,
+      'channel': channel,
+      'purpose': purpose,
+    }, auth: false);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<Map<String, dynamic>> verifyOtp(
+    String phone,
+    String code, {
+    String? fullName,
+  }) async {
+    final d = await ApiClient.data('POST', '/auth/rider/verify-otp', body: {
+      'phone': phone,
+      'code': code,
+      if (fullName != null && fullName.isNotEmpty) 'fullName': fullName,
+    }, auth: false);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  /* -------------------- Profile -------------------- */
+  static Future<Map<String, dynamic>> me() async {
+    final d = await ApiClient.data('GET', '/rider/me');
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<Map<String, dynamic>> updateMe(Map<String, dynamic> body) async {
+    final d = await ApiClient.data('PATCH', '/rider/me', body: body);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  /* -------------------- Saved locations -------------------- */
+  static Future<List<dynamic>> savedLocations() async {
+    final d = await ApiClient.data('GET', '/rider/saved-locations');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> createSavedLocation(Map<String, dynamic> body) async {
+    final d = await ApiClient.data('POST', '/rider/saved-locations', body: body);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<void> deleteSavedLocation(String id) async {
+    await ApiClient.data('DELETE', '/rider/saved-locations/$id');
+  }
+
+  /* -------------------- Payment methods -------------------- */
+  static Future<List<dynamic>> paymentMethods() async {
+    final d = await ApiClient.data('GET', '/rider/payment-methods');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> addPaymentMethod(Map<String, dynamic> body) async {
+    final d = await ApiClient.data('POST', '/rider/payment-methods', body: body);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<void> setDefaultPaymentMethod(String id) async {
+    await ApiClient.data('PATCH', '/rider/payment-methods/$id/default');
+  }
+
+  static Future<void> deletePaymentMethod(String id) async {
+    await ApiClient.data('DELETE', '/rider/payment-methods/$id');
+  }
+
+  /* -------------------- Rides -------------------- */
+  static Future<Map<String, dynamic>> quote({
+    required String rideType,
+    required double pickupLat,
+    required double pickupLng,
+    required double destinationLat,
+    required double destinationLng,
+  }) async {
+    final d = await ApiClient.data('POST', '/rider/rides/quote', body: {
+      'rideType': rideType,
+      'pickupLat': pickupLat,
+      'pickupLng': pickupLng,
+      'destinationLat': destinationLat,
+      'destinationLng': destinationLng,
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<Map<String, dynamic>> createRide(Map<String, dynamic> body) async {
+    final d = await ApiClient.data('POST', '/rider/rides', body: body);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<Map<String, dynamic>> getRide(String id) async {
+    final d = await ApiClient.data('GET', '/rider/rides/$id');
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<Map<String, dynamic>> track(String id) async {
+    final d = await ApiClient.data('GET', '/rider/rides/$id/track');
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<void> cancelRide(String id, String reason) async {
+    await ApiClient.data('POST', '/rider/rides/$id/cancel', body: {'reason': reason});
+  }
+
+  static Future<void> rate(
+    String id,
+    int stars, {
+    String? feedback,
+    double? tip,
+  }) async {
+    await ApiClient.data('POST', '/rider/rides/$id/rating', body: {
+      'stars': stars,
+      if (feedback != null) 'feedback': feedback,
+      if (tip != null) 'tip': tip,
+    });
+  }
+
+  static Future<List<dynamic>> history() async {
+    final d = await ApiClient.data('GET', '/rider/rides');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  /* -------------------- Wallet -------------------- */
+  static Future<Map<String, dynamic>> walletBalance() async {
+    final d = await ApiClient.data('GET', '/rider/wallet');
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<List<dynamic>> walletTransactions() async {
+    final d = await ApiClient.data('GET', '/rider/wallet/transactions');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> topUp({
+    required double amount,
+    required String paymentMethod,
+  }) async {
+    final d = await ApiClient.data('POST', '/rider/wallet/topup', body: {
+      'amount': amount,
+      'paymentMethod': paymentMethod,
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  /* -------------------- Promos -------------------- */
+  static Future<List<dynamic>> promos() async {
+    final d = await ApiClient.data('GET', '/promos');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> applyPromo(String code, {String? rideId}) async {
+    final d = await ApiClient.data('POST', '/promos/apply', body: {
+      'code': code,
+      if (rideId != null) 'rideId': rideId,
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  /* -------------------- Parcels & Tours -------------------- */
+  static Future<List<dynamic>> parcels() async {
+    final d = await ApiClient.data('GET', '/rider/parcels');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> createParcel(Map<String, dynamic> body) async {
+    final d = await ApiClient.data('POST', '/rider/parcels', body: body);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<List<dynamic>> tourPackages() async {
+    final d = await ApiClient.data('GET', '/rider/tour-packages');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<List<dynamic>> tours() async {
+    final d = await ApiClient.data('GET', '/rider/tours');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> bookTour(Map<String, dynamic> body) async {
+    final d = await ApiClient.data('POST', '/rider/tours', body: body);
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  /* -------------------- Chat -------------------- */
+  static Future<List<dynamic>> conversations() async {
+    final d = await ApiClient.data('GET', '/rider/chat');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> openSupport() async {
+    final d = await ApiClient.data('POST', '/rider/chat/support');
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<List<dynamic>> messages(String conversationId) async {
+    final d = await ApiClient.data('GET', '/rider/chat/$conversationId/messages');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+
+  static Future<Map<String, dynamic>> sendMessage(String conversationId, String text) async {
+    final d = await ApiClient.data('POST', '/rider/chat/$conversationId/messages', body: {
+      'text': text,
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  /* -------------------- Notifications -------------------- */
+  static Future<void> registerFcmToken(String token, {String platform = 'android'}) async {
+    await ApiClient.data('POST', '/rider/notifications/token', body: {
+      'token': token,
+      'platform': platform,
+    });
+  }
+
+  static Future<List<dynamic>> notifications() async {
+    final d = await ApiClient.data('GET', '/rider/notifications');
+    return List<dynamic>.from(d is List ? d : []);
+  }
+}

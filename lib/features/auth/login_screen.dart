@@ -9,6 +9,8 @@ import '../../core/widgets/loading_button.dart';
 import '../../core/constants/app_constants.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_provider.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/rider_api.dart';
 import '../home/main_shell.dart';
 import 'signup_screen.dart';
 
@@ -59,25 +61,14 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _sendOtp() async {
-    if (_phoneController.text.trim().length < 9) {
-      _showSnack(context.read<AppProvider>().t('Enter a valid phone number', 'Ingiza nambari sahihi ya simu'));
-      return;
-    }
+    if (_phoneController.text.trim().length < 7) { _showSnack(context.read<AppProvider>().t('Enter a valid phone number', 'Ingiza nambari sahihi ya simu')); return; }
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _otpSent = true;
-      _countdown = 60;
-    });
-    _startCountdown();
-    _showSnack(
-      context.read<AppProvider>().t(
-            'OTP sent via ${_useWhatsApp ? "WhatsApp" : "SMS"}',
-            'OTP imetumwa kupitia ${_useWhatsApp ? "WhatsApp" : "SMS"}',
-          ),
-    );
+    try {
+      final phone = '$_countryCode${_phoneController.text.trim()}';
+      await ApiClient.request('POST','/auth/rider/send-otp',body:{'phone':phone,'channel':_useWhatsApp?'whatsapp':'sms','purpose':'login'});
+      if (!mounted) return; setState((){_otpSent=true;_countdown=60;}); _startCountdown();
+      _showSnack(context.read<AppProvider>().t('OTP sent successfully','OTP imetumwa kwa mafanikio'));
+    } catch(e) { if(mounted) _showSnack(e.toString().replaceFirst('Exception: ','')); } finally { if(mounted) setState(()=>_loading=false); }
   }
 
   void _startCountdown() {
@@ -90,47 +81,15 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _verifyOtp() async {
-    if (_otpController.text.length != 4) {
-      _showSnack(context.read<AppProvider>().t('Enter 4-digit OTP', 'Ingiza OTP ya tarakimu 4'));
-      return;
-    }
+    if (_otpController.text.trim().length < 4) { _showSnack(context.read<AppProvider>().t('Enter the OTP', 'Ingiza OTP')); return; }
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) return;
-
-    // Demo: accept 1234 or any 4 digits
-    final user = UserModel(
-      id: 'u1',
-      fullName: 'Guest Rider',
-      phone: '$_countryCode${_phoneController.text.trim()}',
-      island: 'Unguja',
-      region: 'Zanzibar Urban/West (Mjini Magharibi)',
-      district: 'West (Magharibi)',
-      ward: 'Mwanakwerekwe',
-      walletBalance: 5000,
-      savedLocations: [
-        SavedLocationModel(
-          id: 'home',
-          label: 'Home',
-          address: 'Mwanakwerekwe, West',
-          island: 'Unguja',
-          region: 'Zanzibar Urban/West (Mjini Magharibi)',
-          district: 'West (Magharibi)',
-          ward: 'Mwanakwerekwe',
-        ),
-      ],
-    );
-    await context.read<AppProvider>().login(user);
-    if (!mounted) return;
-    setState(() => _loading = false);
-    Navigator.of(context).pushAndRemoveUntil(
-      PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const MainShell(),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(opacity: anim, child: child),
-        transitionDuration: const Duration(milliseconds: 500),
-      ),
-      (_) => false,
-    );
+    try {
+      final phone='$_countryCode${_phoneController.text.trim()}';
+      final r=await ApiClient.request('POST','/auth/rider/verify-otp',body:{'phone':phone,'code':_otpController.text.trim()});
+      final data=(r['data']??{}) as Map<String,dynamic>; await ApiClient.saveTokens(data);
+      final user=UserModel.fromJson(Map<String,dynamic>.from(data['user']??{})); await context.read<AppProvider>().login(user);
+      if(!mounted)return; Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder:(_)=>const MainShell()),(_)=>false);
+    } catch(e) { if(mounted) _showSnack(e.toString().replaceFirst('Exception: ','')); } finally { if(mounted) setState(()=>_loading=false); }
   }
 
   void _showSnack(String msg) {

@@ -4,6 +4,8 @@ import 'package:uuid/uuid.dart';
 import '../models/user_model.dart';
 import '../models/ride_model.dart';
 import '../core/constants/app_constants.dart';
+import '../core/api/api_client.dart';
+import '../core/api/rider_api.dart';
 
 class AppProvider extends ChangeNotifier {
   // Theme & Language
@@ -64,7 +66,6 @@ class AppProvider extends ChangeNotifier {
 
   AppProvider() {
     _loadPrefs();
-    _initDemoData();
   }
 
   Future<void> _loadPrefs() async {
@@ -77,50 +78,16 @@ class AppProvider extends ChangeNotifier {
     _isAuthenticated = prefs.getBool('isAuthenticated') ?? false;
     _notificationsEnabled = prefs.getBool('notifications') ?? true;
     _locationGranted = prefs.getBool('locationGranted') ?? false;
-    if (_isAuthenticated && _user == null) {
-      _user = UserModel(
-        id: 'u1',
-        fullName: 'Guest Rider',
-        phone: '+255700000000',
-        island: 'Unguja',
-        region: 'Zanzibar Urban/West (Mjini Magharibi)',
-        district: 'West (Magharibi)',
-        ward: 'Mwanakwerekwe',
-        walletBalance: 15000,
-        savedLocations: [
-          SavedLocationModel(
-            id: 'home',
-            label: 'Home',
-            address: 'Mwanakwerekwe, West',
-            island: 'Unguja',
-            region: 'Zanzibar Urban/West (Mjini Magharibi)',
-            district: 'West (Magharibi)',
-            ward: 'Mwanakwerekwe',
-            lat: -6.1659,
-            lng: 39.2026,
-          ),
-          SavedLocationModel(
-            id: 'work',
-            label: 'Work',
-            address: 'Stone Town, Mjini',
-            island: 'Unguja',
-            region: 'Zanzibar Urban/West (Mjini Magharibi)',
-            district: 'Urban (Mjini)',
-            ward: 'Shangani',
-            lat: -6.1650,
-            lng: 39.1910,
-          ),
-        ],
-        paymentMethods: [
-          PaymentMethodModel(id: 'cash1', type: 'cash', isDefault: true),
-          PaymentMethodModel(
-            id: 'wallet1',
-            type: 'wallet',
-            provider: 'ZenjiGO',
-            isDefault: false,
-          ),
-        ],
-      );
+    if (_isAuthenticated) {
+      try {
+        final r = await ApiClient.request('GET', '/rider/me');
+        final data = Map<String,dynamic>.from(r['data'] ?? {});
+        _user = UserModel.fromJson(data);
+      } catch (_) {
+        _isAuthenticated = false;
+        await prefs.setBool('isAuthenticated', false);
+        await ApiClient.clearTokens();
+      }
     }
     notifyListeners();
   }
@@ -274,6 +241,14 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rt = prefs.getString('refreshToken');
+      if (rt != null) {
+        await ApiClient.request('POST', '/auth/logout', body: {'refreshToken': rt}, auth: false);
+      }
+    } catch (_) {}
+    await ApiClient.clearTokens();
     _user = null;
     _isAuthenticated = false;
     _activeRide = null;
@@ -305,7 +280,7 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  RideModel createRide({
+  Future<RideModel> createRide({
     required String rideType,
     required String fromAddress,
     required String toAddress,
@@ -318,22 +293,64 @@ class AppProvider extends ChangeNotifier {
     String? paymentMethod,
     String? promoCode,
     double? discount,
-  }) {
-    final pin = (1000 + DateTime.now().millisecond % 9000).toString();
+  }) async {
+    final fLat = fromLat ?? _currentLat;
+    final fLng = fromLng ?? _currentLng;
+    final tLat = toLat ?? _currentLat;
+    final tLng = toLng ?? _currentLng;
+    final pay = paymentMethod ?? 'cash';
+    final promo = promoCode ?? _pendingPromoCode;
+
+    Map<String, dynamic> remote = {};
+    try {
+      // Live quote then create
+      final q = await RiderApi.quote(
+        rideType: rideType,
+        pickupLat: fLat,
+        pickupLng: fLng,
+        destinationLat: tLat,
+        destinationLng: tLng,
+      );
+      final body = {
+        'rideType': rideType,
+        'pickupAddress': fromAddress,
+        'destinationAddress': toAddress,
+        'pickupLat': fLat,
+        'pickupLng': fLng,
+        'destinationLat': tLat,
+        'destinationLng': tLng,
+        'paymentMethod': pay,
+        if (promo != null) 'promoCode': promo,
+      };
+      remote = await RiderApi.createRide(body);
+      // Prefer server fare if present
+      if (q['estimatedFare'] != null) {
+        estimatedFare = double.tryParse(q['estimatedFare'].toString()) ?? estimatedFare;
+      }
+      if (q['estimatedDurationMin'] != null) {
+        etaMinutes = int.tryParse(q['estimatedDurationMin'].toString()) ?? etaMinutes;
+      }
+    } catch (e) {
+      // Surface to caller
+      rethrow;
+    }
+
+    final id = (remote['id'] ?? remote['rideId'] ?? remote['ride_code'] ?? _uuid.v4()).toString();
+    final pin = (remote['trip_pin'] ?? remote['tripPin'] ?? (1000 + DateTime.now().millisecond % 9000)).toString();
     final ride = RideModel(
-      id: _uuid.v4(),
+      id: id,
       rideType: rideType,
       fromAddress: fromAddress,
       toAddress: toAddress,
-      fromLat: fromLat ?? _currentLat,
-      fromLng: fromLng ?? _currentLng,
-      toLat: toLat ?? _currentLat,
-      toLng: toLng ?? _currentLng,
-      estimatedFare: estimatedFare,
+      fromLat: fLat,
+      fromLng: fLng,
+      toLat: tLat,
+      toLng: tLng,
+      estimatedFare: double.tryParse((remote['estimated_fare'] ?? remote['estimatedFare'] ?? estimatedFare).toString()) ?? estimatedFare,
       etaMinutes: etaMinutes,
-      status: 'searching',
-      paymentMethod: paymentMethod ?? 'cash',
-      promoCode: promoCode ?? _pendingPromoCode,
+      status: (remote['status'] ?? 'searching').toString(),
+      paymentMethod: pay,
+      promoCode: promo,
       discount: discount ?? _pendingDiscount,
       tripPin: pin,
     );
@@ -344,8 +361,57 @@ class AppProvider extends ChangeNotifier {
     return ride;
   }
 
-  void cancelActiveRide({String? reason}) {
+  Future<void> refreshRideHistory() async {
+    try {
+      final list = await RiderApi.history();
+      _rideHistory = list.map((e) {
+        final m = Map<String, dynamic>.from(e as Map);
+        return RideModel(
+          id: (m['id'] ?? m['ride_code'] ?? '').toString(),
+          rideType: (m['ride_type'] ?? m['rideType'] ?? 'boda').toString(),
+          fromAddress: (m['pickup_address'] ?? m['fromAddress'] ?? '').toString(),
+          toAddress: (m['destination_address'] ?? m['toAddress'] ?? '').toString(),
+          fromLat: double.tryParse((m['pickup_lat'] ?? 0).toString()) ?? 0,
+          fromLng: double.tryParse((m['pickup_lng'] ?? 0).toString()) ?? 0,
+          toLat: double.tryParse((m['destination_lat'] ?? 0).toString()) ?? 0,
+          toLng: double.tryParse((m['destination_lng'] ?? 0).toString()) ?? 0,
+          estimatedFare: double.tryParse((m['estimated_fare'] ?? m['final_fare'] ?? 0).toString()) ?? 0,
+          finalFare: double.tryParse((m['final_fare'] ?? 0).toString()),
+          etaMinutes: int.tryParse((m['estimated_duration_min'] ?? 15).toString()) ?? 15,
+          status: (m['status'] ?? 'completed').toString(),
+          paymentMethod: (m['payment_method'] ?? 'cash').toString(),
+          createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) : null,
+        );
+      }).toList();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> refreshWallet() async {
+    try {
+      final w = await RiderApi.walletBalance();
+      final bal = double.tryParse((w['balance'] ?? w['walletBalance'] ?? walletBalance).toString());
+      if (bal != null) updateWallet(bal);
+      final txs = await RiderApi.walletTransactions();
+      _transactions = txs.map((e) {
+        final m = Map<String, dynamic>.from(e as Map);
+        return TransactionModel(
+          id: (m['id'] ?? '').toString(),
+          type: (m['type'] ?? 'topup').toString(),
+          title: (m['description'] ?? m['type'] ?? 'Transaction').toString(),
+          amount: double.tryParse((m['amount'] ?? 0).toString()) ?? 0,
+          paymentMethod: (m['payment_method'] ?? '').toString(),
+        );
+      }).toList();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> cancelActiveRide({String? reason}) async {
     if (_activeRide == null) return;
+    try {
+      await RiderApi.cancelRide(_activeRide!.id, reason ?? 'Cancelled by rider');
+    } catch (_) {}
     final cancelled = _activeRide!.copyWith(
       status: 'cancelled',
       cancelReason: reason,
@@ -420,9 +486,15 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ─── Promo ─────────────────────────────────────────────────────
-  void applyPromo(String code, double discount) {
-    _pendingPromoCode = code;
-    _pendingDiscount = discount;
+  Future<void> applyPromo(String code, [double discount = 0]) async {
+    try {
+      final r = await RiderApi.applyPromo(code);
+      _pendingPromoCode = (r['code'] ?? code).toString();
+      _pendingDiscount = double.tryParse((r['discount'] ?? discount).toString()) ?? discount;
+    } catch (_) {
+      _pendingPromoCode = code;
+      _pendingDiscount = discount;
+    }
     notifyListeners();
   }
 
@@ -543,6 +615,19 @@ class AppProvider extends ChangeNotifier {
   void addTransaction(TransactionModel tx) {
     _transactions.insert(0, tx);
     notifyListeners();
+  }
+
+  Future<bool> topUpWalletLive({required double amount, required String paymentMethod}) async {
+    try {
+      final d = await RiderApi.topUp(amount: amount, paymentMethod: paymentMethod);
+      final bal = double.tryParse((d['balance'] ?? d['walletBalance'] ?? walletBalance).toString());
+      if (bal != null) updateWallet(bal);
+      else updateWallet(walletBalance + amount);
+      await refreshWallet();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   bool topUpWallet({

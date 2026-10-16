@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
 import '../../models/user_model.dart';
 import '../ride/ride_details_screen.dart';
@@ -95,7 +96,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _toLng ??= 39.2026 + (_toCtrl.text.hashCode % 80) / 5000.0;
 
     setState(() => _searching = true);
-    await Future.delayed(const Duration(milliseconds: 600));
+    // Optional live quote for better fare display
+    try {
+      final q = await RiderApi.quote(
+        rideType: _selectedRideType == 'airport' ? 'taxi' : (_selectedRideType ?? 'boda'),
+        pickupLat: app.currentLat,
+        pickupLng: app.currentLng,
+        destinationLat: _toLat!,
+        destinationLng: _toLng!,
+      );
+      if (q['estimatedFare'] != null) _estimatedFare = double.tryParse(q['estimatedFare'].toString()) ?? _estimatedFare;
+      if (q['estimatedDurationMin'] != null) _eta = int.tryParse(q['estimatedDurationMin'].toString()) ?? _eta;
+    } catch (_) {}
     if (!mounted) return;
     setState(() => _searching = false);
 
