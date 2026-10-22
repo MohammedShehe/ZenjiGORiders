@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/api/rider_api.dart';
@@ -35,13 +36,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // Zanzibar center
   static const LatLng _zanzibarCenter = LatLng(-6.1659, 39.2026);
 
-  final List<LatLng> _nearbyDrivers = [
-    const LatLng(-6.1620, 39.2050),
-    const LatLng(-6.1680, 39.1980),
-    const LatLng(-6.1600, 39.2100),
-    const LatLng(-6.1720, 39.2000),
-    const LatLng(-6.1580, 39.1950),
-  ];
+  final List<LatLng> _nearbyDrivers = [];
+  bool _locationLoading = false;
 
   @override
   void dispose() {
@@ -56,20 +52,48 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final app = context.read<AppProvider>();
-      if (app.currentAddress.isNotEmpty) {
-        _fromCtrl.text = app.currentAddress;
-      }
+      if (app.currentAddress.isNotEmpty) _fromCtrl.text = app.currentAddress;
+      _loadCurrentLocation();
     });
+  }
+
+  Future<void> _loadCurrentLocation() async {
+    if (_locationLoading) return;
+    setState(() => _locationLoading = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw Exception('Enable location services to use your real pickup location.');
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        throw Exception('Location permission is required to set your pickup.');
+      }
+      final pos = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
+      if (!mounted) return;
+      context.read<AppProvider>().setCurrentLocation(lat: pos.latitude, lng: pos.longitude,
+        address: 'Current Location (${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})');
+      _fromCtrl.text = 'Current Location (${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})';
+      try {
+        final drivers = await RiderApi.nearbyDrivers(pos.latitude, pos.longitude);
+        if (!mounted) return;
+        setState(() {
+          _nearbyDrivers
+            ..clear()
+            ..addAll(drivers.map((e) => Map<String, dynamic>.from(e as Map)).where((d) => d['lat'] != null && d['lng'] != null)
+              .map((d) => LatLng(double.parse(d['lat'].toString()), double.parse(d['lng'].toString()))));
+        });
+      } catch (_) { /* Nearby driver markers are optional; booking still uses the live backend. */ }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    } finally { if (mounted) setState(() => _locationLoading = false); }
   }
 
   void _selectRide(String id) {
     setState(() {
       _selectedRideType = id;
-      if (_toCtrl.text.isNotEmpty) {
-        final type = AppConstants.rideTypes.firstWhere((r) => r['id'] == id);
-        _estimatedFare = (type['baseFare'] as int) + (type['perKm'] as int) * 8.0;
-        _eta = 12 + (id == 'airport' ? 20 : 5);
-      }
+      _estimatedFare = null;
+      _eta = null;
     });
   }
 
@@ -91,9 +115,10 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
     }
-    // Mock destination coords if not set (simple hash of text for demo)
-    _toLat ??= -6.1659 + (_toCtrl.text.hashCode % 100) / 5000.0;
-    _toLng ??= 39.2026 + (_toCtrl.text.hashCode % 80) / 5000.0;
+    if (_toLat == null || _toLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a destination from Saved locations so its real map coordinates can be used.')));
+      return;
+    }
 
     setState(() => _searching = true);
     // Optional live quote for better fare display
@@ -107,7 +132,11 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (q['estimatedFare'] != null) _estimatedFare = double.tryParse(q['estimatedFare'].toString()) ?? _estimatedFare;
       if (q['estimatedDurationMin'] != null) _eta = int.tryParse(q['estimatedDurationMin'].toString()) ?? _eta;
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not get a live fare quote: ${e.toString().replaceFirst('Exception: ', '')}')));
+      if (mounted) setState(() => _searching = false);
+      return;
+    }
     if (!mounted) return;
     setState(() => _searching = false);
 
@@ -247,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Map
           FlutterMap(
             options: MapOptions(
-              initialCenter: _zanzibarCenter,
+              initialCenter: LatLng(app.currentLat, app.currentLng),
               initialZoom: 14,
               interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
             ),
@@ -264,7 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
               MarkerLayer(
                 markers: [
                   Marker(
-                    point: _zanzibarCenter,
+                    point: LatLng(app.currentLat, app.currentLng),
                     width: 40,
                     height: 40,
                     child: Icon(Icons.my_location, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal, size: 28),

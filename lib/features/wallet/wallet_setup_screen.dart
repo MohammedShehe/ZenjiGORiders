@@ -142,11 +142,11 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
     setState(() => _loading = true);
     final ok = await app.topUpWalletLive(amount: _amount, paymentMethod: method.type);
     if (!mounted) return;
-    if (!ok) {
-      // fallback local credit for offline demo
-      app.topUpWallet(amount: _amount, paymentMethod: method.type, provider: method.provider);
-    }
     setState(() => _loading = false);
+    if (!ok) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Top-up could not be confirmed by the payment service. Your wallet was not changed. Please try again.')));
+      return;
+    }
 
     await showDialog<void>(
       context: context,

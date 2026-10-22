@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class AppConstants {
-  static const String appName = 'ZenjiGO Rider';
+  static const String appName = 'ZenjiGO';
   static const String orgPhone = '+255 676 891 227';
   static const String orgEmail = 'zenjigo@support.com';
   static const String orgInstagram = 'zenjigo';

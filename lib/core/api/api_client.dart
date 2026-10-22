@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiClient {
   static const String baseUrl = String.fromEnvironment(
     'ZENJIGO_API_URL',
-    defaultValue: 'http://localhost:5000/api/v1',
+    defaultValue: 'http://192.168.0.109:5000/api/v1',
   );
 
   static Future<String?> _access() async {
@@ -60,9 +60,13 @@ class ApiClient {
       }
     }
 
-    final decoded = response.body.isEmpty
-        ? <String, dynamic>{}
-        : jsonDecode(response.body) as Map<String, dynamic>;
+    Map<String, dynamic> decoded;
+    try {
+      final parsed = response.body.isEmpty ? <String, dynamic>{} : jsonDecode(response.body);
+      decoded = parsed is Map<String, dynamic> ? parsed : <String, dynamic>{'data': parsed};
+    } catch (_) {
+      decoded = <String, dynamic>{'message': response.body};
+    }
 
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
@@ -82,8 +86,11 @@ class ApiClient {
         body: jsonEncode({'refreshToken': rt}),
       );
       if (res.statusCode < 200 || res.statusCode >= 300) return false;
-      final decoded = jsonDecode(res.body) as Map<String, dynamic>;
-      final data = Map<String, dynamic>.from(decoded['data'] ?? decoded);
+      final decoded = jsonDecode(res.body);
+      if (decoded is! Map || decoded['success'] == false) return false;
+      final payload = decoded['data'] ?? decoded;
+      if (payload is! Map) return false;
+      final data = Map<String, dynamic>.from(payload);
       await saveTokens(data);
       return true;
     } catch (_) {

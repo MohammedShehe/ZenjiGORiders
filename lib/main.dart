@@ -28,7 +28,7 @@ class ZenjiGOApp extends StatelessWidget {
       child: Consumer<AppProvider>(
         builder: (context, app, _) {
           return MaterialApp(
-            title: 'ZenjiGO Rider',
+            title: 'ZenjiGO',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,

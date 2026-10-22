@@ -124,128 +124,71 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   }
 
   void _startSearch() {
+    _statusTimer?.cancel();
     _searchSeconds = 0;
-    _statusTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
-      setState(() => _searchSeconds++);
-      if (_searchSeconds >= 2 && _ride.status == 'searching') {
-        // Found driver
-        t.cancel();
-        final driver = DriverModel(
-          id: 'd_live_${DateTime.now().millisecondsSinceEpoch}',
-          name: 'Juma Hassan',
-          phone: '+255712345678',
-          vehicleNumber: 'T 789 XYZ',
-          vehicleType: _ride.rideType,
-          rating: 4.9,
-          totalRides: 342,
-          lat: _ride.fromLat + 0.008,
-          lng: _ride.fromLng + 0.006,
-        );
-        _ride = _ride.copyWith(status: 'accepted', driver: driver);
-        context.read<AppProvider>().updateActiveRide(_ride);
-        context.read<AppProvider>().ensureDriverChat(driver);
-        setState(() {});
-        _scheduleNext('arriving', const Duration(seconds: 3));
-      } else if (_searchSeconds >= 25 && _ride.status == 'searching') {
-        // No driver timeout
-        t.cancel();
-        setState(() => _noDriver = true);
-      }
-    });
+    _pollServerRide();
+    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollServerRide());
   }
 
-  void _continueLifecycle() {
-    if (_ride.status == 'accepted') {
-      _scheduleNext('arriving', const Duration(seconds: 2));
-    } else if (_ride.status == 'arriving') {
-      _startDriverApproach();
-    } else if (_ride.status == 'arrived') {
-      // wait for user confirm
-    } else if (_ride.status == 'started') {
-      _startTripProgress();
+  Future<void> _pollServerRide() async {
+    if (!mounted || _ride.id == 'pending') return;
+    try {
+      final payload = await RiderApi.getRide(_ride.id);
+      final raw = payload['ride'] is Map ? Map<String, dynamic>.from(payload['ride']) : payload;
+      final status = (raw['status'] ?? _ride.status).toString().toLowerCase();
+      final driverRaw = raw['driver'] is Map ? Map<String, dynamic>.from(raw['driver']) : null;
+      DriverModel? driver = _ride.driver;
+      if (driverRaw != null) {
+        final lat = double.tryParse((driverRaw['lat'] ?? driverRaw['latitude'] ?? '').toString()) ?? driver?.lat ?? _ride.fromLat;
+        final lng = double.tryParse((driverRaw['lng'] ?? driverRaw['longitude'] ?? '').toString()) ?? driver?.lng ?? _ride.fromLng;
+        driver = DriverModel(
+          id: (driverRaw['id'] ?? driverRaw['_id'] ?? driver?.id ?? '').toString(),
+          name: (driverRaw['fullName'] ?? driverRaw['name'] ?? driver?.name ?? 'Driver').toString(),
+          phone: (driverRaw['phone'] ?? driver?.phone ?? '').toString(),
+          photoUrl: (driverRaw['photoUrl'] ?? driverRaw['photo_url'] ?? driver?.photoUrl ?? '').toString(),
+          vehicleNumber: (driverRaw['plateNumber'] ?? driverRaw['vehicleNumber'] ?? driver?.vehicleNumber ?? '').toString(),
+          vehicleType: (driverRaw['vehicleType'] ?? driverRaw['rideType'] ?? driver?.vehicleType ?? _ride.rideType).toString(),
+          rating: double.tryParse((driverRaw['rating'] ?? driver?.rating ?? 4.8).toString()) ?? 4.8,
+          totalRides: int.tryParse((driverRaw['totalRides'] ?? driver?.totalRides ?? 0).toString()) ?? 0,
+          lat: lat,
+          lng: lng,
+        );
+      }
+      var next = _ride.copyWith(status: status, driver: driver);
+      try {
+        final track = await RiderApi.track(_ride.id);
+        final lat = double.tryParse((track['driverLat'] ?? track['driver_lat'] ?? '').toString());
+        final lng = double.tryParse((track['driverLng'] ?? track['driver_lng'] ?? '').toString());
+        if (driver != null && lat != null && lng != null) next = next.copyWith(driver: driver.copyWith(lat: lat, lng: lng));
+      } catch (_) { /* Tracking can be unavailable before a driver is assigned. */ }
+      if (!mounted) return;
+      final wasCompleted = _ride.status == 'completed';
+      setState(() {
+        _ride = next;
+        _driverProgress = status == 'started' ? 0 : _driverProgress;
+        _searchSeconds += 5;
+        _noDriver = false;
+      });
+      context.read<AppProvider>().updateActiveRide(_ride);
+      if (status == 'completed' && !wasCompleted && _ride.rating == null) {
+        _statusTimer?.cancel();
+        await _showRatingAndComplete();
+      } else if (status == 'cancelled' || status == 'completed') {
+        _statusTimer?.cancel();
+      }
+    } catch (_) {
+      // Keep the current screen responsive during transient network failures; retry next poll.
     }
   }
 
-  void _scheduleNext(String nextStatus, Duration delay) {
-    _statusTimer?.cancel();
-    _statusTimer = Timer(delay, () {
-      if (!mounted) return;
-      if (nextStatus == 'arriving') {
-        _ride = _ride.copyWith(status: 'arriving');
-        context.read<AppProvider>().updateActiveRide(_ride);
-        setState(() {});
-        _startDriverApproach();
-      } else if (nextStatus == 'arrived') {
-        _ride = _ride.copyWith(status: 'arrived');
-        context.read<AppProvider>().updateActiveRide(_ride);
-        setState(() {});
-      }
-    });
-  }
-
-  void _startDriverApproach() {
-    _driverProgress = 0;
-    _driverMoveTimer?.cancel();
-    _driverMoveTimer = Timer.periodic(const Duration(milliseconds: 400), (t) {
-      if (!mounted || _ride.status != 'arriving') {
-        t.cancel();
-        return;
-      }
-      setState(() {
-        _driverProgress = (_driverProgress + 0.05).clamp(0.0, 1.0);
-        if (_ride.driver != null) {
-          final d = _ride.driver!;
-          final lat = d.lat + (_ride.fromLat - d.lat) * _driverProgress;
-          final lng = d.lng + (_ride.fromLng - d.lng) * _driverProgress;
-          _ride = _ride.copyWith(driver: d.copyWith(lat: lat, lng: lng));
-        }
-      });
-      if (_driverProgress >= 1.0) {
-        t.cancel();
-        _ride = _ride.copyWith(status: 'arrived');
-        context.read<AppProvider>().updateActiveRide(_ride);
-        setState(() {});
-      }
-    });
+  void _continueLifecycle() {
+    if (_ride.isActive) _startSearch();
   }
 
   void _confirmPickup() {
-    _ride = _ride.copyWith(status: 'started', startedAt: DateTime.now());
-    context.read<AppProvider>().updateActiveRide(_ride);
-    setState(() {});
-    _startTripProgress();
-  }
-
-  void _startTripProgress() {
-    _driverProgress = 0;
-    _driverMoveTimer?.cancel();
-    _driverMoveTimer = Timer.periodic(const Duration(milliseconds: 500), (t) {
-      if (!mounted || _ride.status != 'started') {
-        t.cancel();
-        return;
-      }
-      setState(() {
-        _driverProgress = (_driverProgress + 0.04).clamp(0.0, 1.0);
-        if (_ride.driver != null) {
-          final lat = _ride.fromLat + (_ride.toLat - _ride.fromLat) * _driverProgress;
-          final lng = _ride.fromLng + (_ride.toLng - _ride.fromLng) * _driverProgress;
-          _ride = _ride.copyWith(driver: _ride.driver!.copyWith(lat: lat, lng: lng));
-        }
-      });
-      if (_driverProgress >= 1.0) {
-        t.cancel();
-        _onDestinationReached();
-      }
-    });
-  }
-
-  void _onDestinationReached() {
-    // Show rating sheet then complete
-    _showRatingAndComplete();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Share your trip PIN with the driver. The driver will start the trip in the app.')),
+    );
   }
 
   Future<void> _showRatingAndComplete() async {
@@ -352,6 +295,13 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     final fb = result?['feedback'] as String?;
     final tp = (result?['tip'] as double?) ?? 0;
 
+    try {
+      await RiderApi.rate(_ride.id, r, feedback: fb?.isNotEmpty == true ? fb : null, tip: tp > 0 ? tp : null);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not submit rating: ${e.toString().replaceFirst('Exception: ', '')}')));
+      return;
+    }
     app.completeActiveRide(finalFare: _ride.estimatedFare, rating: r, feedback: fb, tip: tp);
 
     // Find the completed ride from history
@@ -436,7 +386,12 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     if (confirm == true && mounted) {
       _statusTimer?.cancel();
       _driverMoveTimer?.cancel();
-      await app.cancelActiveRide(reason: result);
+      try {
+        await app.cancelActiveRide(reason: result);
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not cancel ride: ${e.toString().replaceFirst('Exception: ', '')}')));
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(app.t('Ride cancelled successfully.', 'Safari imeghairiwa kikamilifu.'))),
       );
@@ -799,13 +754,13 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         if (_ride.status == 'started') ...[
           const SizedBox(height: 12),
           LinearProgressIndicator(
-            value: _driverProgress,
+            value: null,
             backgroundColor: isDark ? AppColors.darkCard : Colors.grey.shade200,
             color: AppColors.brightGreen,
           ),
           const SizedBox(height: 6),
           Text(
-            app.t('${(_driverProgress * 100).toInt()}% to destination', '${(_driverProgress * 100).toInt()}% kufika'),
+            app.t('Live trip status from your driver', 'Hali ya safari kutoka kwa dereva'),
             style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
           ),
         ],

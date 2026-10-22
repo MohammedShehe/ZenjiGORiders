@@ -409,9 +409,7 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> cancelActiveRide({String? reason}) async {
     if (_activeRide == null) return;
-    try {
-      await RiderApi.cancelRide(_activeRide!.id, reason ?? 'Cancelled by rider');
-    } catch (_) {}
+    await RiderApi.cancelRide(_activeRide!.id, reason ?? 'Cancelled by rider');
     final cancelled = _activeRide!.copyWith(
       status: 'cancelled',
       cancelReason: reason,

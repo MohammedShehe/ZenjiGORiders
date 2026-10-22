@@ -4,12 +4,12 @@ class RiderApi {
   /* -------------------- Auth -------------------- */
   static Future<Map<String, dynamic>> sendOtp(
     String phone, {
-    String channel = 'sms',
+    required String email,
     String purpose = 'login',
   }) async {
     final d = await ApiClient.data('POST', '/auth/rider/send-otp', body: {
       'phone': phone,
-      'channel': channel,
+      'email': email,
       'purpose': purpose,
     }, auth: false);
     return Map<String, dynamic>.from(d is Map ? d : {});
@@ -18,10 +18,12 @@ class RiderApi {
   static Future<Map<String, dynamic>> verifyOtp(
     String phone,
     String code, {
+    required String email,
     String? fullName,
   }) async {
     final d = await ApiClient.data('POST', '/auth/rider/verify-otp', body: {
       'phone': phone,
+      'email': email,
       'code': code,
       if (fullName != null && fullName.isNotEmpty) 'fullName': fullName,
     }, auth: false);
@@ -106,6 +108,11 @@ class RiderApi {
     return Map<String, dynamic>.from(d is Map ? d : {});
   }
 
+  static Future<List<dynamic>> nearbyDrivers(double lat, double lng, {double radiusKm = 5}) async {
+    final d = await ApiClient.data('GET', '/rider/drivers/nearby?lat=$lat&lng=$lng&radius=$radiusKm');
+    return List<dynamic>.from(d is List ? d : (d is Map && d['drivers'] is List ? d['drivers'] : []));
+  }
+
   static Future<void> cancelRide(String id, String reason) async {
     await ApiClient.data('POST', '/rider/rides/$id/cancel', body: {'reason': reason});
   }
@@ -142,10 +149,13 @@ class RiderApi {
   static Future<Map<String, dynamic>> topUp({
     required double amount,
     required String paymentMethod,
+    String? phone,
   }) async {
     final d = await ApiClient.data('POST', '/rider/wallet/topup', body: {
       'amount': amount,
       'paymentMethod': paymentMethod,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+      'provider': 'paygrid',
     });
     return Map<String, dynamic>.from(d is Map ? d : {});
   }
