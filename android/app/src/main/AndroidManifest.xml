@@ -12,6 +12,9 @@
         android:label="ZenjiGO"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyD2_9WpUt3D0SlOJTMKY5kK_omBZ0tUhC4" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

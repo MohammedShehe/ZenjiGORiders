@@ -36,7 +36,7 @@ class LocationData {
     ],
   };
 
-  // Sample wards (Shehia) - comprehensive list for demo
+  // Region and ward choices used by the web registration form.
   static const Map<String, List<String>> wards = {
     'North Unguja A (Kaskazini A)': [
       'Nungwi', 'Kendwa', 'Matemwe', 'Pwani Mchangani', 'Kiwengwa', 'Pongwe',

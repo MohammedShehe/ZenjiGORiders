@@ -311,7 +311,7 @@ class _SplashScreenState extends State<SplashScreen>
                                       : null,
                                 ),
                                 child: Image.asset(
-                                  'assets/logos/icon.png',
+                                  'assets/logos/logo_mark.png',
                                   width: 148,
                                   height: 148,
                                   fit: BoxFit.contain,

@@ -28,13 +28,19 @@ class SavedLocationsScreen extends StatelessWidget {
       ),
     );
     if (yes == true && context.mounted) {
-      context.read<AppProvider>().removeSavedLocation(location.id);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location removed.')));
+      try {
+        await context.read<AppProvider>().removeSavedLocation(location.id);
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location removed.')));
+      } catch (e) {
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+      }
     }
   }
 
   Future<void> _add(BuildContext context) async {
     final address = TextEditingController();
+    final lat = TextEditingController();
+    final lng = TextEditingController();
     String label = 'Home';
       final saved = await showDialog<bool>(
         context: context,
@@ -56,13 +62,23 @@ class SavedLocationsScreen extends StatelessWidget {
                   controller: address,
                   decoration: const InputDecoration(labelText: 'Address'),
                 ),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Expanded(child: TextField(controller: lat, keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true), decoration: const InputDecoration(labelText: 'Latitude'))),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: lng, keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true), decoration: const InputDecoration(labelText: 'Longitude'))),
+                ]),
               ],
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
               ElevatedButton(
                 onPressed: () {
-                  if (address.text.trim().isNotEmpty) Navigator.pop(dialogContext, true);
+                  if (address.text.trim().isNotEmpty &&
+                      double.tryParse(lat.text.trim()) != null &&
+                      double.tryParse(lng.text.trim()) != null) {
+                    Navigator.pop(dialogContext, true);
+                  }
                 },
                 child: const Text('Save'),
               ),
@@ -73,18 +89,24 @@ class SavedLocationsScreen extends StatelessWidget {
       if (saved == true && context.mounted) {
         final user = context.read<AppProvider>().user;
         if (user != null) {
-          context.read<AppProvider>().addSavedLocation(
-            SavedLocationModel(
-              id: DateTime.now().microsecondsSinceEpoch.toString(),
-              label: label,
-              address: address.text.trim(),
-              island: user.island,
-              region: user.region,
-              district: user.district,
-              ward: user.ward,
-            ),
-          );
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location saved.')));
+          try {
+            await context.read<AppProvider>().addSavedLocation(
+              SavedLocationModel(
+                id: '',
+                label: label,
+                address: address.text.trim(),
+                island: user.island,
+                region: user.region,
+                district: user.district,
+                ward: user.ward,
+                lat: double.parse(lat.text.trim()),
+                lng: double.parse(lng.text.trim()),
+              ),
+            );
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location saved.')));
+          } catch (e) {
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+          }
         }
       }
   }

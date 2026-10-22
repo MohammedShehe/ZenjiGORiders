@@ -1,8 +1,7 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
@@ -10,7 +9,7 @@ import '../../core/constants/app_constants.dart';
 import '../../models/ride_model.dart';
 import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
-import '../chat/chat_detail_screen.dart';
+import '../chat/chat_list_screen.dart';
 import 'ride_receipt_screen.dart';
 
 /// Live booking / active-ride screen.
@@ -58,7 +57,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   bool _noDriver = false;
   int _searchSeconds = 0;
   double _driverProgress = 0; // 0..1 toward pickup then destination
-  final _mapController = MapController();
 
   @override
   void initState() {
@@ -78,8 +76,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         fromLng: widget.fromLng ?? app.currentLng,
         toLat: widget.toLat ?? app.currentLat,
         toLng: widget.toLng ?? app.currentLng,
-        estimatedFare: widget.fare ?? 5000,
-        etaMinutes: widget.eta ?? 15,
+        estimatedFare: widget.fare ?? 0,
+        etaMinutes: widget.eta ?? 0,
         status: 'searching',
         paymentMethod: widget.paymentMethod ?? 'cash',
       );
@@ -94,8 +92,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         rideType: widget.rideType ?? 'boda',
         fromAddress: widget.from ?? app.currentAddress,
         toAddress: widget.to ?? '',
-        estimatedFare: widget.fare ?? 5000,
-        etaMinutes: widget.eta ?? 15,
+        estimatedFare: widget.fare ?? 0,
+        etaMinutes: widget.eta ?? 0,
         fromLat: widget.fromLat,
         fromLng: widget.fromLng,
         toLat: widget.toLat,
@@ -139,8 +137,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       final driverRaw = raw['driver'] is Map ? Map<String, dynamic>.from(raw['driver']) : null;
       DriverModel? driver = _ride.driver;
       if (driverRaw != null) {
-        final lat = double.tryParse((driverRaw['lat'] ?? driverRaw['latitude'] ?? '').toString()) ?? driver?.lat ?? _ride.fromLat;
-        final lng = double.tryParse((driverRaw['lng'] ?? driverRaw['longitude'] ?? '').toString()) ?? driver?.lng ?? _ride.fromLng;
+        final lat = double.tryParse((driverRaw['lat'] ?? driverRaw['latitude'] ?? '').toString()) ?? driver?.lat ?? 0;
+        final lng = double.tryParse((driverRaw['lng'] ?? driverRaw['longitude'] ?? '').toString()) ?? driver?.lng ?? 0;
         driver = DriverModel(
           id: (driverRaw['id'] ?? driverRaw['_id'] ?? driver?.id ?? '').toString(),
           name: (driverRaw['fullName'] ?? driverRaw['name'] ?? driver?.name ?? 'Driver').toString(),
@@ -148,7 +146,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           photoUrl: (driverRaw['photoUrl'] ?? driverRaw['photo_url'] ?? driver?.photoUrl ?? '').toString(),
           vehicleNumber: (driverRaw['plateNumber'] ?? driverRaw['vehicleNumber'] ?? driver?.vehicleNumber ?? '').toString(),
           vehicleType: (driverRaw['vehicleType'] ?? driverRaw['rideType'] ?? driver?.vehicleType ?? _ride.rideType).toString(),
-          rating: double.tryParse((driverRaw['rating'] ?? driver?.rating ?? 4.8).toString()) ?? 4.8,
+          rating: double.tryParse((driverRaw['rating'] ?? driver?.rating ?? 0).toString()) ?? 0,
           totalRides: int.tryParse((driverRaw['totalRides'] ?? driver?.totalRides ?? 0).toString()) ?? 0,
           lat: lat,
           lng: lng,
@@ -302,7 +300,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not submit rating: ${e.toString().replaceFirst('Exception: ', '')}')));
       return;
     }
-    app.completeActiveRide(finalFare: _ride.estimatedFare, rating: r, feedback: fb, tip: tp);
+    await app.completeActiveRide(finalFare: _ride.estimatedFare, rating: r, feedback: fb, tip: tp);
 
     // Find the completed ride from history
     final completed = app.rideHistory.isNotEmpty ? app.rideHistory.first : _ride.copyWith(
@@ -494,59 +492,40 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     );
     final pickup = LatLng(_ride.fromLat, _ride.fromLng);
     final dest = LatLng(_ride.toLat, _ride.toLng);
-    final driverPos = _ride.driver != null
+    final driverPos = _ride.driver != null && _ride.driver!.lat != 0 && _ride.driver!.lng != 0
         ? LatLng(_ride.driver!.lat, _ride.driver!.lng)
         : null;
 
     return Scaffold(
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: pickup,
-              initialZoom: 14,
+          gmaps.GoogleMap(
+            initialCameraPosition: gmaps.CameraPosition(
+              target: gmaps.LatLng(pickup.latitude, pickup.longitude),
+              zoom: 14,
             ),
-            children: [
-              TileLayer(
-                urlTemplate: isDark
-                    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'com.zenjigo.riders',
+            myLocationButtonEnabled: true,
+            zoomControlsEnabled: false,
+            markers: {
+              gmaps.Marker(
+                markerId: const gmaps.MarkerId('pickup'),
+                position: gmaps.LatLng(pickup.latitude, pickup.longitude),
+                infoWindow: const gmaps.InfoWindow(title: 'Pickup'),
               ),
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: pickup,
-                    width: 40,
-                    height: 40,
-                    child: const Icon(Icons.person_pin_circle, color: AppColors.brightGreen, size: 36),
-                  ),
-                  Marker(
-                    point: dest,
-                    width: 40,
-                    height: 40,
-                    child: const Icon(Icons.location_on, color: AppColors.sunsetOrange, size: 36),
-                  ),
-                  if (driverPos != null)
-                    Marker(
-                      point: driverPos,
-                      width: 44,
-                      height: 44,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.oceanTeal,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
-                        ),
-                        child: const Icon(Icons.two_wheeler, color: Colors.white, size: 22),
-                      ),
-                    ),
-                ],
+              gmaps.Marker(
+                markerId: const gmaps.MarkerId('destination'),
+                position: gmaps.LatLng(dest.latitude, dest.longitude),
+                icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueOrange),
+                infoWindow: const gmaps.InfoWindow(title: 'Destination'),
               ),
-            ],
+              if (driverPos != null)
+                gmaps.Marker(
+                  markerId: const gmaps.MarkerId('driver'),
+                  position: gmaps.LatLng(driverPos.latitude, driverPos.longitude),
+                  icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueGreen),
+                  infoWindow: gmaps.InfoWindow(title: _ride.driver?.name ?? 'Driver'),
+                ),
+            },
           ),
           SafeArea(
             child: Padding(
@@ -778,10 +757,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () {
-                  final conv = app.ensureDriverChat(driver);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => ChatDetailScreen(conversation: conv)),
+                    MaterialPageRoute(builder: (_) => const ChatListScreen()),
                   );
                 },
                 icon: const Icon(Icons.chat),

@@ -25,7 +25,6 @@ class _SignupScreenState extends State<SignupScreen> {
   int _step = 0;
   bool _loading = false;
   bool _otpSent = false;
-  bool _useWhatsApp = false;
   int _countdown = 0;
   Timer? _countdownTimer;
 
@@ -33,6 +32,8 @@ class _SignupScreenState extends State<SignupScreen> {
   final _phoneCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
+  final _islandCtrl = TextEditingController();
+  final _regionCtrl = TextEditingController();
   String _countryCode = '+255';
 
   String? _island;
@@ -61,29 +62,39 @@ class _SignupScreenState extends State<SignupScreen> {
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
     _otpCtrl.dispose();
+    _islandCtrl.dispose();
+    _regionCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _sendOtp() async {
-    if (_nameCtrl.text.trim().isEmpty || _phoneCtrl.text.trim().length < 9) {
-      _snack(context.read<AppProvider>().t('Please fill name and phone', 'Jaza jina na nambari ya simu'));
+    final name = _nameCtrl.text.trim();
+    final local = _phoneCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
+    final normalizedLocal = local.startsWith('0') ? local.substring(1) : local;
+    final phone = '$_countryCode$normalizedLocal';
+    final email = _emailCtrl.text.trim().toLowerCase();
+
+    if (name.isEmpty || normalizedLocal.length < 7) {
+      _snack(context.read<AppProvider>().t('Please enter your full name and a valid phone number', 'Ingiza jina kamili na nambari sahihi ya simu'));
       return;
     }
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      _snack(context.read<AppProvider>().t('Enter a valid email address', 'Ingiza barua pepe sahihi'));
+      return;
+    }
+
     setState(() => _loading = true);
     try {
-      final phone = '$_countryCode${_phoneCtrl.text.trim()}';
-      await ApiClient.request('POST','/auth/rider/send-otp',body:{
-        'phone': phone,
-        'channel': _useWhatsApp ? 'whatsapp' : 'sms',
-      });
+      await RiderApi.sendOtp(phone, email: email);
       if (!mounted) return;
       setState(() { _otpSent = true; _countdown = 60; });
-    } catch(e) {
-      if (mounted) _snack(e.toString().replaceFirst('Exception: ',''));
+      _startCountdown();
+      _snack(context.read<AppProvider>().t('Verification code sent to your email', 'Nambari ya uthibitisho imetumwa kwenye barua pepe yako'));
+    } catch (e) {
+      if (mounted) _snack(_errorText(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-    _startCountdown();
   }
 
   void _startCountdown() {
@@ -98,29 +109,50 @@ class _SignupScreenState extends State<SignupScreen> {
     });
   }
 
+  String _errorText(Object error) {
+    final text = error.toString().replaceFirst('Exception: ', '').trim();
+    return text.isEmpty ? 'Request failed. Please try again.' : text;
+  }
+
   Future<void> _verifyAndNext() async {
-    if (_otpCtrl.text.length != 4) {
-      _snack(context.read<AppProvider>().t('Enter valid OTP', 'Ingiza OTP sahihi'));
+    final code = _otpCtrl.text.trim();
+    if (code.length < 4 || code.length > 8 || !RegExp(r'^\d+$').hasMatch(code)) {
+      _snack(context.read<AppProvider>().t('Enter the verification code', 'Ingiza nambari ya uthibitisho'));
       return;
     }
+    final local = _phoneCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
+    final normalizedLocal = local.startsWith('0') ? local.substring(1) : local;
+    final phone = '$_countryCode$normalizedLocal';
+    final email = _emailCtrl.text.trim().toLowerCase();
+
     setState(() => _loading = true);
     try {
-      final phone = '$_countryCode${_phoneCtrl.text.trim()}';
-      final r = await ApiClient.request('POST','/auth/rider/verify-otp',body:{
-        'phone': phone,
-        'code': _otpCtrl.text.trim(),
-        'fullName': _nameCtrl.text.trim(),
-        'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
-      });
-      final data = Map<String,dynamic>.from(r['data'] ?? {});
+      // Match the website registration contract: profile details are submitted
+      // with OTP verification, and account creation happens only after OTP succeeds.
+      final data = await RiderApi.verifyOtp(
+        phone,
+        code,
+        email: email,
+        fullName: _nameCtrl.text.trim(),
+        island: _islandCtrl.text.trim(),
+        region: _regionCtrl.text.trim(),
+      );
       await ApiClient.saveTokens(data);
-      final user = UserModel.fromJson(Map<String,dynamic>.from(data['user'] ?? {}));
+      final rawUser = data['user'] ?? data['rider'];
+      if (rawUser is! Map) {
+        throw Exception('OTP verified but the server did not return a rider account. Please contact support.');
+      }
+      final user = UserModel.fromJson(Map<String, dynamic>.from(rawUser));
       await context.read<AppProvider>().login(user);
       if (!mounted) return;
-      setState(() => _step = 1);
-      _pageController.nextPage(duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
-    } catch(e) {
-      if (mounted) _snack(e.toString().replaceFirst('Exception: ',''));
+      _countdownTimer?.cancel();
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PaymentMethodsScreen(onSkip: _goHome, onComplete: _goHome),
+        ),
+      );
+    } catch (e) {
+      if (mounted) _snack(_errorText(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -276,7 +308,7 @@ class _SignupScreenState extends State<SignupScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Row(
-              children: List.generate(2, (i) {
+              children: List.generate(1, (i) {
                 return Expanded(
                   child: Container(
                     margin: EdgeInsets.only(right: i == 0 ? 8 : 0),
@@ -298,7 +330,6 @@ class _SignupScreenState extends State<SignupScreen> {
               physics: const NeverScrollableScrollPhysics(),
               children: [
                 _buildPersonalStep(app, isDark),
-                _buildLocationStep(app, isDark),
               ],
             ),
           ),
@@ -317,6 +348,7 @@ class _SignupScreenState extends State<SignupScreen> {
           const SizedBox(height: 20),
           TextField(
             controller: _nameCtrl,
+            enabled: !_otpSent,
             textCapitalization: TextCapitalization.words,
             decoration: InputDecoration(
               labelText: app.t('Full Name', 'Jina Kamili'),
@@ -392,6 +424,7 @@ class _SignupScreenState extends State<SignupScreen> {
               Expanded(
                 child: TextField(
                   controller: _phoneCtrl,
+                  enabled: !_otpSent,
                   keyboardType: TextInputType.phone,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: InputDecoration(
@@ -405,36 +438,43 @@ class _SignupScreenState extends State<SignupScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _emailCtrl,
+            enabled: !_otpSent,
             keyboardType: TextInputType.emailAddress,
             decoration: InputDecoration(
-              labelText: app.t('Email (Optional)', 'Barua pepe (Si lazima)'),
+              labelText: app.t('Email', 'Barua pepe'),
               prefixIcon: const Icon(Icons.email_outlined),
             ),
           ),
           const SizedBox(height: 16),
-          if (!_otpSent)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkCard : AppColors.lightCard,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.chat, color: Color(0xFF25D366), size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(app.t('OTP via WhatsApp', 'OTP kupitia WhatsApp'), style: const TextStyle(fontSize: 13))),
-                  Switch.adaptive(value: _useWhatsApp, onChanged: (v) => setState(() => _useWhatsApp = v), activeColor: const Color(0xFF25D366)),
-                ],
-              ),
+          TextField(
+            controller: _islandCtrl,
+            enabled: !_otpSent,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              labelText: app.t('Island', 'Kisiwa'),
+              hintText: 'e.g. Unguja',
+              prefixIcon: const Icon(Icons.landscape_outlined),
             ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _regionCtrl,
+            enabled: !_otpSent,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              labelText: app.t('Region / Area', 'Mkoa / Eneo'),
+              hintText: app.t('Enter your region or area', 'Ingiza mkoa au eneo lako'),
+              prefixIcon: const Icon(Icons.location_on_outlined),
+            ),
+          ),
+          const SizedBox(height: 16),
           if (_otpSent) ...[
             const SizedBox(height: 20),
             Text(app.t('Enter OTP', 'Ingiza OTP'), style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
             PinCodeTextField(
               appContext: context,
-              length: 4,
+              length: 6,
               controller: _otpCtrl,
               keyboardType: TextInputType.number,
               pinTheme: PinTheme(

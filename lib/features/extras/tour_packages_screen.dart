@@ -1,138 +1,160 @@
 import 'package:flutter/material.dart';
-import '../tracking/tracking_screen.dart';
+import '../../core/api/rider_api.dart';
 
-class TourPackagesScreen extends StatelessWidget {
+class TourPackagesScreen extends StatefulWidget {
   const TourPackagesScreen({super.key});
 
-  static const packages = [
-    {'title': 'Half-Day Stone Town', 'price': 45000, 'hours': 4, 'icon': Icons.account_balance_rounded},
-    {'title': 'Full-Day Island Tour', 'price': 90000, 'hours': 8, 'icon': Icons.beach_access_rounded},
-    {'title': 'Nungwi Sunset Ride', 'price': 35000, 'hours': 3, 'icon': Icons.wb_twilight_rounded},
-    {'title': 'Spice Farm Experience', 'price': 55000, 'hours': 5, 'icon': Icons.local_florist_rounded},
-    {'title': 'Pemba Island Adventure', 'price': 150000, 'hours': 10, 'icon': Icons.directions_boat_filled_rounded},
-  ];
-
-  Future<void> _configure(BuildContext context, Map<String, Object> package) async {
-    final pickup = TextEditingController();
-    int tourists = 1;
-    TimeOfDay? pickupTime;
-      final result = await showDialog<_TourBooking>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (dialogContext, setDialogState) => AlertDialog(
-            title: Text(package['title'] as String),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: pickup,
-                    decoration: const InputDecoration(
-                      labelText: 'Pickup location',
-                      prefixIcon: Icon(Icons.location_on),
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      const Expanded(child: Text('Number of tourists')),
-                      IconButton(onPressed: () => setDialogState(() => tourists = (tourists - 1).clamp(1, 50)), icon: const Icon(Icons.remove_circle_outline)),
-                      Text('$tourists'),
-                      IconButton(onPressed: () => setDialogState(() => tourists = (tourists + 1).clamp(1, 50)), icon: const Icon(Icons.add_circle_outline)),
-                    ],
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.schedule),
-                    title: Text(pickupTime == null ? 'Choose pickup time' : 'Pickup at ${pickupTime!.format(dialogContext)}'),
-                    onTap: () async {
-                      final selected = await showTimePicker(context: dialogContext, initialTime: TimeOfDay.now());
-                      if (selected != null) setDialogState(() => pickupTime = selected);
-                    },
-                  ),
-                  const Text('Return time is calculated automatically from the package duration.'),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-              ElevatedButton(
-                onPressed: () {
-                  if (pickup.text.trim().isEmpty || pickupTime == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter pickup location and pickup time.')));
-                    return;
-                  }
-                  Navigator.pop(dialogContext, _TourBooking(pickup.text.trim(), tourists, pickupTime!));
-                },
-                child: const Text('Continue'),
-              ),
-            ],
-          ),
-        ),
-      );
-
-      if (result == null || !context.mounted) return;
-      final minutes = (package['hours'] as int) * 60;
-      final start = result.time.hour * 60 + result.time.minute;
-      final returned = (start + minutes) % (24 * 60);
-      final returnTime = TimeOfDay(hour: returned ~/ 60, minute: returned % 60);
-
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Confirm Tour'),
-          content: Text(
-            '${package['title']}\n\nPickup: ${result.pickup}\nTourists: ${result.tourists}\nPickup time: ${result.time.format(context)}\nAutomatic return: ${returnTime.format(context)}\nPrice: TZS ${package['price']}',
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Edit')),
-            ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Confirm & Track')),
-          ],
-        ),
-      );
-      if (confirmed == true && context.mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => TrackingScreen(
-              title: 'Tour Tracking',
-              from: result.pickup,
-              to: package['title'] as String,
-              type: 'tour',
-              statusLabel: 'Tour assigned',
-            ),
-          ),
-        );
-      }
-    }
-
-    @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tour Packages')),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: packages.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (_, index) {
-          final package = packages[index];
-          return Card(
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(14),
-              leading: Icon(package['icon'] as IconData, size: 36, color: Theme.of(context).colorScheme.primary),
-              title: Text(package['title'] as String, style: const TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: Text('${package['hours']} hours · TZS ${package['price']}'),
-              trailing: ElevatedButton(onPressed: () => _configure(context, package), child: const Text('Select')),
-            ),
-          );
-        },
-      ),
-    );
-  }
+  @override
+  State<TourPackagesScreen> createState() => _TourPackagesScreenState();
 }
 
-class _TourBooking {
-  final String pickup;
-  final int tourists;
-  final TimeOfDay time;
-  const _TourBooking(this.pickup, this.tourists, this.time);
+class _TourPackagesScreenState extends State<TourPackagesScreen> {
+  bool _loading = true;
+  String? _error;
+  bool _booking = false;
+  List<Map<String, dynamic>> _packages = [];
+  List<Map<String, dynamic>> _bookings = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  List<Map<String, dynamic>> _asList(dynamic value) {
+    final list = value is List ? value : value is Map && value['packages'] is List
+        ? value['packages'] as List
+        : value is Map && value['tours'] is List
+            ? value['tours'] as List
+            : const [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final results = await Future.wait([RiderApi.tourPackages(), RiderApi.tours()]);
+      if (!mounted) return;
+      setState(() {
+        _packages = _asList(results[0]);
+        _bookings = _asList(results[1]);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _loading = false; });
+    }
+  }
+
+  Future<void> _book(Map<String, dynamic> package) async {
+    final id = (package['id'] ?? package['_id'] ?? package['packageId'] ?? '').toString();
+    if (id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This tour package has no booking ID from the server.')),
+      );
+      return;
+    }
+    setState(() => _booking = true);
+    try {
+      await RiderApi.bookTour({'packageId': id});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tour booking submitted.')),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _booking = false);
+    }
+  }
+
+  String _text(Map<String, dynamic> item, List<String> keys, [String fallback = '—']) {
+    for (final key in keys) {
+      final value = item[key];
+      if (value != null && value.toString().trim().isNotEmpty) return value.toString();
+    }
+    return fallback;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Tour Packages'),
+        actions: [IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.cloud_off_outlined, size: 42),
+                      const SizedBox(height: 12),
+                      Text(_error!, textAlign: TextAlign.center),
+                      const SizedBox(height: 12),
+                      ElevatedButton(onPressed: _load, child: const Text('Retry')),
+                    ]),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      const Text('Available packages', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 10),
+                      if (_packages.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: Text('No tour packages are currently available from the server.'),
+                        )
+                      else
+                        ..._packages.map((item) {
+                          final price = item['price'] ?? item['fare'] ?? item['amount'];
+                          return Card(
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.all(14),
+                              leading: const Icon(Icons.explore_outlined, size: 32),
+                              title: Text(_text(item, ['name', 'title', 'packageName']), style: const TextStyle(fontWeight: FontWeight.w700)),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 5),
+                                child: Text([
+                                  _text(item, ['description'], ''),
+                                  if (price != null) 'Price: $price',
+                                ].where((e) => e.isNotEmpty).join('\n')),
+                              ),
+                              trailing: _booking
+                                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : ElevatedButton(onPressed: () => _book(item), child: const Text('Book')),
+                            ),
+                          );
+                        }),
+                      const SizedBox(height: 24),
+                      const Text('My bookings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 10),
+                      if (_bookings.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Text('No tour bookings yet.'),
+                        )
+                      else
+                        ..._bookings.map((item) => Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.event_available_outlined),
+                            title: Text(_text(item, ['packageName', 'name', 'title'])),
+                            subtitle: Text(_text(item, ['status', 'bookingStatus'])),
+                            trailing: Text(_text(item, ['createdAt', 'created_at', 'date'], ''), style: Theme.of(context).textTheme.bodySmall),
+                          ),
+                        )),
+                    ],
+                  ),
+                ),
+    );
+  }
 }

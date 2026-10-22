@@ -28,6 +28,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   void initState() {
     super.initState();
     _syncMessages();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await context.read<AppProvider>().refreshConversationMessages(widget.conversation.id);
+      if (!mounted) return;
+      setState(_syncMessages);
+      _scrollToEnd();
+    });
   }
 
   void _syncMessages() {
@@ -44,23 +51,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     super.dispose();
   }
 
-  void _send() {
+  Future<void> _send() async {
     final value = _controller.text.trim();
     if (value.isEmpty) return;
-    final msg = ChatMessage(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      senderId: 'me',
-      text: value,
-      replyToId: _replyingTo?.id,
-    );
+    _controller.clear();
     setState(() {
-      _messages.add(msg);
-      _controller.clear();
       _replyingTo = null;
       _emojiVisible = false;
     });
-    context.read<AppProvider>().addMessage(widget.conversation.id, msg);
-    _scrollToEnd();
+    try {
+      await context.read<AppProvider>().sendChatMessage(widget.conversation.id, value);
+      if (!mounted) return;
+      _syncMessages();
+      setState(() {});
+      _scrollToEnd();
+    } catch (e) {
+      if (!mounted) return;
+      _controller.text = value;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
   }
 
   void _scrollToEnd() {
@@ -280,7 +291,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (widget.conversation.isSupport) return;
     final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: Text(app.t('Delete entire chat?', 'Futa mazungumzo yote?')), content: Text(app.t('This conversation will be removed from your chat list.', 'Mazungumzo haya yataondolewa kwenye orodha yako.')), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(app.t('Cancel', 'Ghairi'))), ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(app.t('Delete', 'Futa')))]));
     if (ok == true && mounted) {
-      app.deleteConversation(widget.conversation.id);
+      app.conversations.removeWhere((conversation) => conversation.id == widget.conversation.id);
       Navigator.pop(context);
     }
   }

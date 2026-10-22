@@ -6,7 +6,6 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/loading_button.dart';
-import '../../core/constants/app_constants.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_provider.dart';
 import '../../core/api/api_client.dart';
@@ -23,11 +22,11 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
   final _otpController = TextEditingController();
   String _countryCode = '+255';
   bool _otpSent = false;
   bool _loading = false;
-  bool _useWhatsApp = false;
   int _countdown = 0;
 
   final List<Map<String, String>> _countries = [
@@ -56,16 +55,22 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     _phoneController.dispose();
+    _emailController.dispose();
     _otpController.dispose();
     super.dispose();
   }
 
   Future<void> _sendOtp() async {
-    if (_phoneController.text.trim().length < 7) { _showSnack(context.read<AppProvider>().t('Enter a valid phone number', 'Ingiza nambari sahihi ya simu')); return; }
+    final email = _emailController.text.trim().toLowerCase();
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      _showSnack(context.read<AppProvider>().t('Enter a valid email address', 'Ingiza barua pepe sahihi'));
+      return;
+    }
     setState(() => _loading = true);
     try {
-      final phone = '$_countryCode${_phoneController.text.trim()}';
-      await ApiClient.request('POST','/auth/rider/send-otp',body:{'phone':phone,'channel':_useWhatsApp?'whatsapp':'sms','purpose':'login'});
+      final local = _phoneController.text.trim().replaceAll(RegExp(r'\D'), '');
+      final phone = '$_countryCode${local.startsWith('0') ? local.substring(1) : local}';
+      await RiderApi.sendOtp(phone, email: email);
       if (!mounted) return; setState((){_otpSent=true;_countdown=60;}); _startCountdown();
       _showSnack(context.read<AppProvider>().t('OTP sent successfully','OTP imetumwa kwa mafanikio'));
     } catch(e) { if(mounted) _showSnack(e.toString().replaceFirst('Exception: ','')); } finally { if(mounted) setState(()=>_loading=false); }
@@ -81,12 +86,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _verifyOtp() async {
-    if (_otpController.text.trim().length < 4) { _showSnack(context.read<AppProvider>().t('Enter the OTP', 'Ingiza OTP')); return; }
+    if (_otpController.text.trim().length != 6) { _showSnack(context.read<AppProvider>().t('Enter the 6-digit OTP', 'Ingiza OTP ya tarakimu 6')); return; }
     setState(() => _loading = true);
     try {
-      final phone='$_countryCode${_phoneController.text.trim()}';
-      final r=await ApiClient.request('POST','/auth/rider/verify-otp',body:{'phone':phone,'code':_otpController.text.trim()});
-      final data=(r['data']??{}) as Map<String,dynamic>; await ApiClient.saveTokens(data);
+      final local = _phoneController.text.trim().replaceAll(RegExp(r'\D'), '');
+      final phone = '$_countryCode${local.startsWith('0') ? local.substring(1) : local}';
+      final data = await RiderApi.verifyOtp(phone, _otpController.text.trim(), email: _emailController.text.trim().toLowerCase());
+      await ApiClient.saveTokens(data);
       final user=UserModel.fromJson(Map<String,dynamic>.from(data['user']??{})); await context.read<AppProvider>().login(user);
       if(!mounted)return; Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder:(_)=>const MainShell()),(_)=>false);
     } catch(e) { if(mounted) _showSnack(e.toString().replaceFirst('Exception: ','')); } finally { if(mounted) setState(()=>_loading=false); }
@@ -216,12 +222,12 @@ class _LoginScreenState extends State<LoginScreen> {
               Text(
                 _otpSent
                     ? app.t(
-                        'Enter the 4-digit code sent to $_countryCode ${_phoneController.text}',
-                        'Ingiza nambari ya tarakimu 4 iliyotumwa $_countryCode ${_phoneController.text}',
+                        'Enter the verification code sent to ${_emailController.text}',
+                        'Ingiza nambari ya uthibitisho iliyotumwa kwa ${_emailController.text}',
                       )
                     : app.t(
-                        'Sign in with your phone number to continue',
-                        'Ingia kwa nambari ya simu kuendelea',
+                        'Sign in with your email to continue',
+                        'Ingia kwa barua pepe kuendelea',
                       ),
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -231,7 +237,18 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 36),
               if (!_otpSent) ...[
-                // Phone input
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  autofillHints: const [AutofillHints.email],
+                  decoration: InputDecoration(
+                    hintText: app.t('Email address', 'Barua pepe'),
+                    prefixIcon: const Icon(Icons.email_outlined, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                // Phone input (optional, matching the web login form)
                 Row(
                   children: [
                     GestureDetector(
@@ -268,32 +285,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ],
                 ).animate().fadeIn(delay: 250.ms).slideY(begin: 0.1, end: 0),
-                const SizedBox(height: 20),
-                // WhatsApp toggle
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.darkCard : AppColors.lightCard,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.chat_rounded, color: const Color(0xFF25D366), size: 22),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          app.t('Send OTP via WhatsApp', 'Tuma OTP kupitia WhatsApp'),
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                      Switch.adaptive(
-                        value: _useWhatsApp,
-                        onChanged: (v) => setState(() => _useWhatsApp = v),
-                        activeColor: const Color(0xFF25D366),
-                      ),
-                    ],
-                  ),
-                ).animate().fadeIn(delay: 350.ms),
                 const SizedBox(height: 28),
                 LoadingButton(
                   text: app.t('Send OTP', 'Tuma OTP'),
@@ -305,7 +296,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 // OTP input
                 PinCodeTextField(
                   appContext: context,
-                  length: 4,
+                  length: 6,
                   controller: _otpController,
                   keyboardType: TextInputType.number,
                   animationType: AnimationType.scale,

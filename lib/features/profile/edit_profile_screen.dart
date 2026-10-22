@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/app_provider.dart';
+import '../../core/api/rider_api.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -10,6 +11,7 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController name, email, phone;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -28,19 +30,35 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
-  void save() {
+  Future<void> save() async {
     final app = context.read<AppProvider>();
     final u = app.user;
-    if (u == null) return;
-    app.updateUser(u.copyWith(
-      fullName: name.text.trim().isEmpty ? u.fullName : name.text.trim(),
-      email: email.text.trim().isEmpty ? null : email.text.trim(),
-      phone: phone.text.trim(),
-    ));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(app.t('Profile updated successfully.', 'Wasifu umesasishwa kwa mafanikio.'))),
-    );
-    Navigator.pop(context);
+    if (u == null || _saving) return;
+    setState(() => _saving = true);
+    try {
+      final data = await RiderApi.updateMe({
+        'fullName': name.text.trim().isEmpty ? u.fullName : name.text.trim(),
+        'email': email.text.trim().toLowerCase(),
+        'phone': phone.text.trim(),
+      });
+      final updated = data.isNotEmpty ? data : await RiderApi.me();
+      app.updateUser(u.copyWith(
+        fullName: (updated['fullName'] ?? name.text.trim()).toString(),
+        email: (updated['email'] ?? email.text.trim()).toString(),
+        phone: (updated['phone'] ?? phone.text.trim()).toString(),
+      ));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(app.t('Profile updated successfully.', 'Wasifu umesasishwa kwa mafanikio.'))),
+      );
+      Navigator.pop(context);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -78,9 +96,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
           const SizedBox(height: 26),
           ElevatedButton.icon(
-            onPressed: save,
-            icon: const Icon(Icons.save),
-            label: Text(app.t('Save Changes', 'Hifadhi Mabadiliko')),
+            onPressed: _saving ? null : save,
+            icon: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
+            label: Text(_saving ? app.t('Saving…', 'Inahifadhi…') : app.t('Save Changes', 'Hifadhi Mabadiliko')),
           ),
         ],
       ),

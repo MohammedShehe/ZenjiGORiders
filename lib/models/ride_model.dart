@@ -128,10 +128,10 @@ class DriverModel {
     this.photoUrl = '',
     required this.vehicleNumber,
     required this.vehicleType,
-    this.rating = 4.8,
-    this.totalRides = 120,
-    this.lat = -6.1659,
-    this.lng = 39.2026,
+    this.rating = 0,
+    this.totalRides = 0,
+    this.lat = 0,
+    this.lng = 0,
   });
 
   DriverModel copyWith({double? lat, double? lng}) {

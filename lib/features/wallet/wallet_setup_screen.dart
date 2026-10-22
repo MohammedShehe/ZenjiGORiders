@@ -8,7 +8,8 @@ import '../../core/api/rider_api.dart';
 import '../payments/add_payment_method_screen.dart';
 
 class WalletSetupScreen extends StatefulWidget {
-  const WalletSetupScreen({super.key});
+  final double? initialAmount;
+  const WalletSetupScreen({super.key, this.initialAmount});
 
   @override
   State<WalletSetupScreen> createState() => _WalletSetupScreenState();
@@ -18,6 +19,20 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
   double _amount = 5000;
   String? _selectedMethodId;
   bool _loading = false;
+  final TextEditingController _phoneController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialAmount;
+    if (initial != null) _amount = initial.clamp(500, 100000).toDouble();
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +71,16 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
               _noMethod(app, accent)
             else ...methods.map((m) => _paymentChoice(m, selected?.id == m.id, accent)),
             const SizedBox(height: 20),
+            TextField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: app.t('Mobile money phone (required)', 'Namba ya simu ya malipo (inahitajika)'),
+                hintText: '255712345678',
+                prefixIcon: const Icon(Icons.phone_android),
+              ),
+            ),
+            const SizedBox(height: 12),
             if (selected != null) _summary(app, selected),
             const SizedBox(height: 16),
             LoadingButton(text: app.t('Confirm secure top-up', 'Thibitisha kuongeza salio'), icon: Icons.lock_rounded, isLoading: _loading, onPressed: selected == null ? _addPayment : _topUp),
@@ -139,8 +164,13 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
     method ??= methods.where((m) => m.isDefault).isNotEmpty ? methods.firstWhere((m) => m.isDefault) : null;
     if (method == null) return;
 
+    final phone = _phoneController.text.trim();
+    if (phone.replaceAll(RegExp(r'\D'), '').length < 9) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid mobile money phone number.')));
+      return;
+    }
     setState(() => _loading = true);
-    final ok = await app.topUpWalletLive(amount: _amount, paymentMethod: method.type);
+    final ok = await app.topUpWalletLive(amount: _amount, paymentMethod: method.type, phone: phone);
     if (!mounted) return;
     setState(() => _loading = false);
     if (!ok) {
@@ -153,8 +183,8 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: const Column(children: [Icon(Icons.check_circle_rounded, color: AppColors.brightGreen, size: 56), SizedBox(height: 8), Text('Top-up successful')]),
-        content: Text(app.t('TZS ${_amount.toStringAsFixed(0)} has been added to your ZenjiGO Wallet.', 'TZS ${_amount.toStringAsFixed(0)} imeongezwa kwenye ZenjiGO Wallet yako.'), textAlign: TextAlign.center),
+        title: const Column(children: [Icon(Icons.check_circle_rounded, color: AppColors.brightGreen, size: 56), SizedBox(height: 8), Text('Top-up request submitted')]),
+        content: Text(app.t('Your payment request was submitted. Your wallet balance updates only after the payment provider confirms it.', 'Ombi la malipo limetumwa. Salio litasasishwa baada ya mtoa huduma kuthibitisha malipo.'), textAlign: TextAlign.center),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(app.t('Done', 'Maliza')))],
       ),
     );

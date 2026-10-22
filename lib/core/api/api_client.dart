@@ -71,7 +71,10 @@ class ApiClient {
     if (response.statusCode < 200 ||
         response.statusCode >= 300 ||
         decoded['success'] == false) {
-      throw Exception(decoded['message'] ?? 'Request failed (${response.statusCode})');
+      final message = decoded['message'];
+      throw Exception(message == null
+          ? 'Request failed (${response.statusCode})'
+          : message.toString());
     }
     return decoded;
   }
@@ -100,8 +103,13 @@ class ApiClient {
 
   static Future<void> saveTokens(Map<String, dynamic> data) async {
     final p = await SharedPreferences.getInstance();
-    final access = data['accessToken'] ?? data['access_token'];
-    final refresh = data['refreshToken'] ?? data['refresh_token'];
+    final nested = data['tokens'] is Map
+        ? Map<String, dynamic>.from(data['tokens'] as Map)
+        : <String, dynamic>{};
+    final access = data['accessToken'] ?? data['access'] ?? data['access_token'] ??
+        nested['accessToken'] ?? nested['access'] ?? nested['access_token'];
+    final refresh = data['refreshToken'] ?? data['refresh'] ?? data['refresh_token'] ??
+        nested['refreshToken'] ?? nested['refresh'] ?? nested['refresh_token'];
     if (access != null) await p.setString('accessToken', access.toString());
     if (refresh != null) await p.setString('refreshToken', refresh.toString());
   }
@@ -119,6 +127,8 @@ class ApiClient {
     bool auth = true,
   }) async {
     final res = await request(method, path, body: body, auth: auth);
-    return res['data'];
+    // API responses may wrap payloads inconsistently. Keep dynamic values
+    // dynamic rather than forcing response fields into String types.
+    return res.containsKey('data') ? res['data'] : res;
   }
 }

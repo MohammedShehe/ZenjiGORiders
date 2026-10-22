@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/loading_button.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../providers/app_provider.dart';
 import '../auth/login_screen.dart';
 
@@ -31,30 +32,37 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _requestLocation() async {
     try {
       final status = await Permission.locationWhenInUse.request();
-      final granted = status.isGranted || status.isLimited;
-      setState(() => _locationGranted = granted);
-      if (mounted) {
-        context.read<AppProvider>().setLocationGranted(granted);
-        if (granted) {
-          // Mock realistic Zanzibar coords for frontend demo
-          context.read<AppProvider>().setCurrentLocation(
-            lat: -6.1659,
-            lng: 39.2026,
-            address: 'Mwanakwerekwe, Zanzibar',
+      if (!status.isGranted && !status.isLimited) {
+        if (mounted) {
+          setState(() => _locationGranted = false);
+          context.read<AppProvider>().setLocationGranted(false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location permission is required to set a real pickup location.')),
           );
         }
+        return;
       }
-    } catch (_) {
-      // Emulator / desktop may not support; allow mock grant for UI testing
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw Exception('Enable location services to continue.');
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+      if (!mounted) return;
       setState(() => _locationGranted = true);
-      if (mounted) {
-        context.read<AppProvider>().setLocationGranted(true);
-        context.read<AppProvider>().setCurrentLocation(
-          lat: -6.1659,
-          lng: 39.2026,
-          address: 'Mwanakwerekwe, Zanzibar',
-        );
-      }
+      context.read<AppProvider>().setLocationGranted(true);
+      context.read<AppProvider>().setCurrentLocation(
+        lat: position.latitude,
+        lng: position.longitude,
+        address: 'Current Location (${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)})',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _locationGranted = false);
+      context.read<AppProvider>().setLocationGranted(false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
     }
   }
 

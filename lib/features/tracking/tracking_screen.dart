@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
@@ -74,32 +74,58 @@ class _TrackingScreenState extends State<TrackingScreen> {
       appBar: AppBar(title: Text(widget.title)),
       body: Stack(
         children: [
-          FlutterMap(
-            options: MapOptions(initialCenter: _vehicle, initialZoom: 14),
-            children: [
-              TileLayer(
-                urlTemplate: dark
-                    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'com.zenjigo.riders',
-              ),
-              MarkerLayer(
-                markers: [
-                  Marker(point: _pickup, width: 42, height: 42, child: const Icon(Icons.my_location, color: AppColors.brightGreen, size: 34)),
-                  Marker(point: _destination, width: 42, height: 42, child: const Icon(Icons.location_on, color: AppColors.sunsetOrange, size: 38)),
-                  Marker(
-                    point: _vehicle,
-                    width: 48,
-                    height: 48,
-                    child: CircleAvatar(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final height = constraints.maxHeight;
+              Offset position(LatLng point) {
+                final x = (point.longitude - 39.198) / (39.214 - 39.198);
+                final y = 1 - (point.latitude - (-6.173)) / (-6.161 - (-6.173));
+                return Offset(x * width, y * height);
+              }
+
+              Widget marker(Offset point, double size, Widget child) =>
+                  Positioned(
+                    left: point.dx - size / 2,
+                    top: point.dy - size / 2,
+                    width: size,
+                    height: size,
+                    child: child,
+                  );
+
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _TrackingMapPainter(dark: dark),
+                    ),
+                  ),
+                  marker(
+                    position(_pickup),
+                    42,
+                    const Icon(Icons.my_location, color: AppColors.brightGreen, size: 34),
+                  ),
+                  marker(
+                    position(_destination),
+                    42,
+                    const Icon(Icons.location_on, color: AppColors.sunsetOrange, size: 38),
+                  ),
+                  marker(
+                    position(_vehicle),
+                    48,
+                    CircleAvatar(
                       backgroundColor: dark ? AppColors.aquaGreen : AppColors.oceanTeal,
-                      child: Icon(widget.type == 'parcel' ? Icons.local_shipping : Icons.directions_car, color: Colors.white),
+                      child: Icon(
+                        widget.type == 'parcel'
+                            ? Icons.local_shipping
+                            : Icons.directions_car,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ],
-              ),
-            ],
+              );
+            },
           ),
           Align(
             alignment: Alignment.bottomCenter,
@@ -172,4 +198,50 @@ class _TrackingScreenState extends State<TrackingScreen> {
       ],
     );
   }
+}
+
+class _TrackingMapPainter extends CustomPainter {
+  final bool dark;
+
+  const _TrackingMapPainter({required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final background = Paint()
+      ..color = dark ? const Color(0xFF202A30) : const Color(0xFFE8EFE8);
+    canvas.drawRect(Offset.zero & size, background);
+
+    final road = Paint()
+      ..color = dark ? const Color(0xFF35434A) : Colors.white
+      ..strokeWidth = 12
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final roads = [
+      [Offset(0, size.height * .22), Offset(size.width * .36, size.height * .4), Offset(size.width, size.height * .3)],
+      [Offset(size.width * .12, size.height), Offset(size.width * .38, size.height * .62), Offset(size.width * .75, 0)],
+      [Offset(0, size.height * .78), Offset(size.width * .45, size.height * .72), Offset(size.width, size.height * .9)],
+    ];
+    for (final points in roads) {
+      final path = ui.Path()..moveTo(points.first.dx, points.first.dy);
+      for (final point in points.skip(1)) {
+        path.lineTo(point.dx, point.dy);
+      }
+      canvas.drawPath(path, road);
+    }
+
+    final route = Paint()
+      ..color = dark ? AppColors.aquaGreen : AppColors.oceanTeal
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(size.width * .2875, size.height * .5917),
+      Offset(size.width * .75, size.height * .25),
+      route,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrackingMapPainter oldDelegate) =>
+      oldDelegate.dark != dark;
 }

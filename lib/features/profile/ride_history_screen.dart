@@ -3,8 +3,21 @@ import 'package:provider/provider.dart';
 import '../../providers/app_provider.dart';
 import '../ride/ride_history_details_screen.dart';
 
-class RideHistoryScreen extends StatelessWidget {
+class RideHistoryScreen extends StatefulWidget {
   const RideHistoryScreen({super.key});
+
+  @override
+  State<RideHistoryScreen> createState() => _RideHistoryScreenState();
+}
+
+class _RideHistoryScreenState extends State<RideHistoryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppProvider>().refreshRideHistory();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

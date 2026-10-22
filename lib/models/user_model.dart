@@ -73,17 +73,36 @@ class UserModel {
         'walletBalance': walletBalance,
       };
 
+  // API identifiers and profile fields may arrive as numbers from older
+  // backend records. Normalize them before assigning to strongly typed fields.
+  static String _stringValue(dynamic value, [String fallback = '']) {
+    if (value == null) return fallback;
+    if (value is String) return value;
+    if (value is num || value is bool) return value.toString();
+    return value.toString();
+  }
+
+  static String? _nullableStringValue(dynamic value) {
+    if (value == null) return null;
+    final result = _stringValue(value).trim();
+    return result.isEmpty ? null : result;
+  }
+
   factory UserModel.fromJson(Map<String, dynamic> json) => UserModel(
-        id: json['id'] ?? '',
-        fullName: json['fullName'] ?? '',
-        phone: json['phone'] ?? '',
-        email: json['email'],
-        photoUrl: json['photoUrl'],
-        island: json['island'] ?? '',
-        region: json['region'] ?? '',
-        district: json['district'] ?? '',
-        ward: json['ward'] ?? '',
-        walletBalance: (json['walletBalance'] ?? 0).toDouble(),
+        id: _stringValue(json['id'] ?? json['_id'] ?? json['riderId']),
+        fullName: _stringValue(json['fullName'] ?? json['full_name'] ?? json['name']),
+        phone: _stringValue(json['phone'] ?? json['phoneNumber'] ?? json['phone_number']),
+        email: _nullableStringValue(json['email']),
+        photoUrl: _nullableStringValue(json['photoUrl'] ?? json['photo_url'] ?? json['avatar']),
+        island: _stringValue(json['island']),
+        region: _stringValue(json['region'] ?? json['area']),
+        district: _stringValue(json['district']),
+        ward: _stringValue(json['ward']),
+        walletBalance: double.tryParse((json['walletBalance'] ?? json['wallet_balance'] ?? 0).toString()) ?? 0,
+        paymentMethods: (json['paymentMethods'] is List ? json['paymentMethods'] as List : const [])
+            .whereType<Map>().map((e) => PaymentMethodModel.fromJson(Map<String, dynamic>.from(e))).toList(),
+        savedLocations: (json['savedLocations'] is List ? json['savedLocations'] as List : const [])
+            .whereType<Map>().map((e) => SavedLocationModel.fromJson(Map<String, dynamic>.from(e))).toList(),
       );
 }
 
@@ -110,6 +129,18 @@ class PaymentMethodModel {
     this.isDefault = false,
   });
 
+  factory PaymentMethodModel.fromJson(Map<String, dynamic> json) => PaymentMethodModel(
+        id: (json['id'] ?? json['_id'] ?? '').toString(),
+        type: (json['type'] ?? 'cash').toString() == 'card' ? 'bank' : (json['type'] ?? 'cash').toString(),
+        provider: (json['provider'] ?? json['label'])?.toString(),
+        accountNumber: (json['account'] ?? json['accountNumber'])?.toString(),
+        cardLast4: (json['last4'] ?? json['cardLast4'])?.toString(),
+        expiry: json['expiry']?.toString(),
+        cardHolder: (json['label'] ?? json['cardHolder'])?.toString(),
+        cardBrand: (json['provider'] ?? json['cardBrand'])?.toString(),
+        isDefault: json['isDefault'] == true || json['is_default'] == true,
+      );
+
   PaymentMethodModel copyWith({bool? isDefault}) => PaymentMethodModel(
         id: id,
         type: type,
@@ -133,6 +164,18 @@ class SavedLocationModel {
   final String ward;
   final double? lat;
   final double? lng;
+
+  factory SavedLocationModel.fromJson(Map<String, dynamic> json) => SavedLocationModel(
+        id: (json['id'] ?? json['_id'] ?? '').toString(),
+        label: (json['label'] ?? json['name'] ?? 'Place').toString(),
+        address: (json['address'] ?? '').toString(),
+        island: (json['island'] ?? '').toString(),
+        region: (json['region'] ?? '').toString(),
+        district: (json['district'] ?? '').toString(),
+        ward: (json['ward'] ?? '').toString(),
+        lat: double.tryParse((json['lat'] ?? json['latitude'] ?? '').toString()),
+        lng: double.tryParse((json['lng'] ?? json['longitude'] ?? '').toString()),
+      );
 
   SavedLocationModel({
     required this.id,

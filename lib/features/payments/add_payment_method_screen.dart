@@ -116,10 +116,8 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
     }
 
     setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (!mounted) return;
 
-    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    final id = '';
     final method = PaymentMethodModel(
       id: id,
       type: _type,
@@ -131,8 +129,18 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
       cardBrand: _type == 'bank' ? _brand.name : null,
       isDefault: _makeDefault,
     );
-    app.addPaymentMethod(method);
-    setState(() => _loading = false);
+    try {
+      await app.addPaymentMethod(method);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+      return;
+    }
+    if (mounted) setState(() => _loading = false);
 
     if (!mounted) return;
     await showDialog<void>(

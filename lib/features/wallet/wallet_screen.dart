@@ -17,6 +17,14 @@ class _WalletScreenState extends State<WalletScreen> {
   double amount = 5000;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppProvider>().refreshWallet();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final app = context.watch<AppProvider>();
     final dark = app.isDark;
@@ -96,8 +104,7 @@ class _WalletScreenState extends State<WalletScreen> {
                     const SizedBox(height: 10),
                     ElevatedButton(
                       onPressed: () {
-                        app.topUpWallet(amount: amount, paymentMethod: 'momo', provider: 'Quick Top-up');
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(app.t('TZS ${amount.toStringAsFixed(0)} added to your wallet.', 'TZS ${amount.toStringAsFixed(0)} imeongezwa kwenye pochi.'))));
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => WalletSetupScreen(initialAmount: amount)));
                       },
                       child: const Text('Top Up Now'),
                     ),

@@ -1,30 +1,31 @@
-# ZenjiGO Riders
+# ZenjiGO Rider App
 
-Flutter Rider app for **ZenjiGO** — wired to the live ZenjiGO backend API.
+Flutter rider application aligned to the rider-facing ZenjiGO web portal in `ZenjiGOWeb`.
 
-## Integrated flows
+## Rider flow and backend endpoints
 
-| Feature | API |
-|---------|-----|
-| Send / verify OTP (login & signup) | `POST /auth/rider/send-otp`, `POST /auth/rider/verify-otp` |
-| Profile load / update | `GET/PATCH /rider/me` |
-| Ride quote | `POST /rider/rides/quote` |
-| Create ride | `POST /rider/rides` |
-| Cancel ride | `POST /rider/rides/:id/cancel` |
-| Rate ride | `POST /rider/rides/:id/rating` |
-| Ride history | `GET /rider/rides` |
-| Wallet balance & transactions | `GET /rider/wallet`, `GET /rider/wallet/transactions` |
-| Wallet top-up | `POST /rider/wallet/topup` |
-| Apply promo | `POST /promos/apply` |
-| Book parcel | `POST /rider/parcels` |
-| Tour packages / book | `GET /rider/tour-packages`, `POST /rider/tours` |
-| Saved locations | `GET/POST/DELETE /rider/saved-locations` |
-| Payment methods | `GET/POST/DELETE /rider/payment-methods` |
-| Chat | `GET /rider/chat`, messages endpoints |
-| JWT refresh | automatic on 401 |
-| Sign out | clears tokens + logout |
+The app uses the same `/api/v1` endpoint paths and request fields as `ZenjiGOWeb/js/api.js`:
 
-## Configure API URL
+- OTP login / signup: `POST /auth/rider/send-otp`, `POST /auth/rider/verify-otp`
+- Session refresh / logout: `POST /auth/refresh`, `POST /auth/logout`
+- Rider profile: `GET/PATCH /rider/me`
+- Saved places: `GET/POST /rider/saved-locations`, `DELETE /rider/saved-locations/:id`
+- Payment methods: `GET/POST /rider/payment-methods`, `PATCH /rider/payment-methods/:id/default`, `DELETE /rider/payment-methods/:id`
+- Quote and booking: `POST /rider/rides/quote`, `POST /rider/rides`
+- Ride details and tracking: `GET /rider/rides/:id`, `GET /rider/rides/:id/track`
+- Cancellation / rating: `POST /rider/rides/:id/cancel`, `GET /rider/rides/:id/cancel-preview`, `POST /rider/rides/:id/rating`
+- Nearby drivers / history: `GET /rider/drivers/nearby`, `GET /rider/rides`
+- Wallet: `GET /rider/wallet`, `GET /rider/wallet/transactions`, `POST /rider/wallet/topup`, `GET /rider/wallet/topup/:id`
+- Promotions: `GET /promos`, `POST /promos/apply`
+- Parcels / tours: `GET/POST /rider/parcels`, `GET /rider/tour-packages`, `GET/POST /rider/tours`
+- Chat: `GET /rider/chat`, `POST /rider/chat/support`, `GET/POST /rider/chat/:id/messages`, `POST /rider/chat/:id/read`
+- Notifications: `GET /rider/notifications`, `PATCH /rider/notifications/:id/read`, `POST /rider/notifications/token`
+
+## Configure and run
+
+Run `flutter pub get` first so Flutter resolves the Google Maps plugin and updates `pubspec.lock`.
+
+### API URL
 
 ```bash
 flutter run --dart-define=ZENJIGO_API_URL=http://10.0.2.2:5000/api/v1
@@ -32,37 +33,56 @@ flutter run --dart-define=ZENJIGO_API_URL=http://10.0.2.2:5000/api/v1
 
 - Android emulator: `http://10.0.2.2:5000/api/v1`
 - iOS simulator: `http://localhost:5000/api/v1`
-- Physical device: your machine LAN IP
+- Physical device: use the backend computer's reachable LAN IP, e.g. `http://192.168.x.x:5000/api/v1`
+- Production: use the deployed HTTPS API URL.
 
-## Run
+### Google Maps and Places
+
+The web portal uses Google Maps JavaScript and Places. The rider app now uses the Google Maps native SDK for maps and Google Places Autocomplete/Place Details for destination selection. The existing public key from the web config is currently wired in the platform files and is used as the Places default. Google Cloud keys often have platform/referrer restrictions: if this key is browser-restricted, replace it with a key configured for the Android Maps SDK, iOS Maps SDK, and Places API. Set the Places key at build time if needed:
 
 ```bash
-# Backend first
-cd ZenjiGOAdmin/backend && npm install && npm run migrate && npm run seed && npm run dev
-
-# Rider app
-cd ZenjiGORiders
-flutter pub get
-flutter run --dart-define=ZENJIGO_API_URL=http://10.0.2.2:5000/api/v1
+flutter run \
+  --dart-define=ZENJIGO_API_URL=http://10.0.2.2:5000/api/v1 \
+  --dart-define=GOOGLE_MAPS_API_KEY=YOUR_PLACES_API_KEY
 ```
 
-## Notes
+For Android, update `android/app/src/main/AndroidManifest.xml` `com.google.android.geo.API_KEY`. For iOS, update `ios/Runner/AppDelegate.swift` `GMSServices.provideAPIKey(...)`. Restrict keys to your app identifiers and only the required APIs before production release.
 
-- Map uses `flutter_map` (OpenStreetMap tiles) — no Google key required.
-- Geolocator is available for real GPS; onboarding grants location when possible.
-- Payment top-up creates a pending payment on the server; Admin can complete it, or wire a real PSP webhook later.
+## Important behavior
 
-## Live backend configuration
+- No demo OTP, fabricated ride history, sample promotion codes, referral codes, fake trip progress, or local-only wallet top-ups are used for the rider flow.
+- Pickup location comes from device GPS. Destination selection resolves a real Google Places result to latitude/longitude before booking.
+- Ride quote, booking, status, driver positions, history, wallet transactions, saved places, payment methods, promotions, tour packages, and chat data are loaded from backend endpoints.
+- A successful top-up request does not locally increase the balance; the backend/payment provider remains authoritative.
+- API/network failures are surfaced in the UI where relevant. A working backend, valid rider account, and correctly configured Google Maps/Places key are required for live behavior.
 
-The app now defaults to `http://10.0.2.2:5000/api/v1` for the Android emulator (the emulator's host-machine alias). Set the real backend URL when building:
+## Build
 
 ```bash
-flutter run --dart-define=ZENJIGO_API_URL=https://YOUR-BACKEND-HOST/api/v1
+flutter pub get
+flutter analyze
 flutter build apk --release --dart-define=ZENJIGO_API_URL=https://YOUR-BACKEND-HOST/api/v1
 ```
 
-A physical Android device cannot use `10.0.2.2`; configure the reachable LAN/deployed HTTPS backend URL with `ZENJIGO_API_URL`. The backend must expose the same `/api/v1` rider routes used by the ZenjiGO web portal.
+This source archive was edited in an environment without the Flutter SDK, so a Flutter build/analyze run has not been performed here. Please run the commands above before deployment.
 
-Booking now requires a destination selected from saved locations (so a real latitude/longitude is sent; arbitrary typed text is no longer assigned fabricated coordinates). Pickup uses device geolocation and nearby-driver pins come from `/rider/drivers/nearby`. Ride status and driver coordinates are polled from `/rider/rides/:id` and `/rider/rides/:id/track`; the app no longer fabricates a driver or auto-advances ride status. Ratings are submitted to the backend, and failed wallet top-ups no longer credit the wallet locally.
+## API, six-digit OTP and live maps
 
-The web portal currently uses Google Maps JavaScript + Places Autocomplete, while this Flutter app uses live Carto basemap tiles via `flutter_map`. The web's JavaScript-restricted Google Maps key is not suitable for native Maps SDK use. To use Google Maps natively, configure a separate Android-restricted Maps SDK key and enable the Maps SDK for Android; Places autocomplete also requires a key with Places API enabled. This archive intentionally does not embed additional API secrets.
+- Rider sign-in and sign-up use a six-digit OTP field and require exactly six digits before verification.
+- API routes are the same `/api/v1` routes used by `ZenjiGOWeb/js/api.js`.
+- Default API URL is `http://10.0.2.2:5000/api/v1` for the Android emulator. For a physical phone, pass your backend's LAN or HTTPS URL using `--dart-define=ZENJIGO_API_URL=http://YOUR_LAN_IP:5000/api/v1`.
+- The Google Maps/Places key matches `ZenjiGOWeb/js/config.js`. Restrict/authorize it for Android, iOS and the required Google Maps SDKs and Places/Geocoding APIs. You may override the Flutter Places key with `--dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY`; native Maps SDK keys must also be configured for each platform.
+- Maps use device GPS, backend-provided nearby drivers, Google Places predictions/details, and backend ride quote/create/tracking APIs. No local ride is fabricated if the server fails to return a ride ID.
+
+
+## Rider registration flow alignment (updated)
+
+- Registration collects full name, phone, email, Island, and Region / Area before requesting the email OTP, matching `ZenjiGOWeb/rider/register.html`.
+- OTP sending does not parse optional response fields into fixed types. The API call is considered successful based on the HTTP/API response.
+- The registration profile (full name, Island, Region / Area) is sent to `POST /auth/rider/verify-otp`; the app only stores tokens and opens the next step after verification returns a rider account.
+- Island and Region / Area are plain text fields, matching the website registration form. District and Ward are not required by this registration flow.
+- API errors are converted to readable text instead of assuming a server error message is a String.
+
+Build/test note: this archive was source-checked and ZIP integrity-checked. Flutter/Dart SDK was not available in this environment, so a Flutter compile or live backend registration test could not be run.
+
+Runtime type-safety fix: rider profile fields and IDs returned as numeric JSON values are normalized to strings before creating the typed user model. Also removed unsafe String casts from the ride/payment selector.

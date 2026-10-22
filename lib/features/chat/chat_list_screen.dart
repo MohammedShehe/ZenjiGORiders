@@ -4,6 +4,7 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../core/theme/app_colors.dart';
 import '../../models/ride_model.dart';
 import '../../providers/app_provider.dart';
+import '../../core/api/rider_api.dart';
 import 'chat_detail_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -13,6 +14,14 @@ class ChatListScreen extends StatefulWidget {
 
 class _ChatListScreenState extends State<ChatListScreen> {
   String query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppProvider>().refreshConversations();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +42,19 @@ class _ChatListScreenState extends State<ChatListScreen> {
       appBar: AppBar(
         title: Text(app.t('Chats', 'Mazungumzo')),
         actions: [
+          IconButton(
+            tooltip: 'Support',
+            icon: const Icon(Icons.support_agent),
+            onPressed: () async {
+              try {
+                await RiderApi.openSupport();
+                await context.read<AppProvider>().refreshConversations();
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Support conversation refreshed.')));
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () async {
@@ -64,30 +86,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     child: const Icon(Icons.delete, color: Colors.white),
                   ),
                   confirmDismiss: (_) async {
-                    if (chat.isSupport) return false;
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: Text(app.t('Delete chat?', 'Futa mazungumzo?')),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(dialogContext, false),
-                            child: Text(app.t('Cancel', 'Ghairi')),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(dialogContext, true),
-                            child: Text(
-                              app.t('Delete', 'Futa'),
-                              style: const TextStyle(color: AppColors.error),
-                            ),
-                          ),
-                        ],
-                      ),
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Conversation deletion is not supported by the current backend API.')),
                     );
-                    if (ok == true) {
-                      app.deleteConversation(chat.id);
-                      return true;
-                    }
                     return false;
                   },
                   onDismissed: (_) {},

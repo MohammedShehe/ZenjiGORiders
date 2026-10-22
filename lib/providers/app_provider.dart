@@ -1,9 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 import '../models/user_model.dart';
 import '../models/ride_model.dart';
-import '../core/constants/app_constants.dart';
 import '../core/api/api_client.dart';
 import '../core/api/rider_api.dart';
 
@@ -51,10 +50,10 @@ class AppProvider extends ChangeNotifier {
   String? get pendingPromoCode => _pendingPromoCode;
   double get pendingDiscount => _pendingDiscount;
 
-  // Current location (mock or real)
-  double _currentLat = -6.1659;
-  double _currentLng = 39.2026;
-  String _currentAddress = 'Current Location';
+  // Location is unknown until the device returns a real GPS fix.
+  double _currentLat = 0;
+  double _currentLng = 0;
+  String _currentAddress = '';
   bool _locationGranted = false;
 
   double get currentLat => _currentLat;
@@ -62,7 +61,6 @@ class AppProvider extends ChangeNotifier {
   String get currentAddress => _currentAddress;
   bool get locationGranted => _locationGranted;
 
-  final _uuid = const Uuid();
 
   AppProvider() {
     _loadPrefs();
@@ -83,6 +81,10 @@ class AppProvider extends ChangeNotifier {
         final r = await ApiClient.request('GET', '/rider/me');
         final data = Map<String,dynamic>.from(r['data'] ?? {});
         _user = UserModel.fromJson(data);
+        // Load account-owned records from the same endpoints used by the web app.
+        await refreshAccountCollections();
+        await refreshRideHistory();
+        await refreshWallet();
       } catch (_) {
         _isAuthenticated = false;
         await prefs.setBool('isAuthenticated', false);
@@ -90,100 +92,6 @@ class AppProvider extends ChangeNotifier {
       }
     }
     notifyListeners();
-  }
-
-  void _initDemoData() {
-    _conversations = [
-      ChatConversation(
-        id: 'support',
-        title: 'ZenjiGO Support',
-        isSupport: true,
-        isPinned: true,
-        messages: [
-          ChatMessage(
-            id: '1',
-            senderId: 'support',
-            text: 'Karibu ZenjiGO! How can we help you today?',
-            timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-          ),
-        ],
-      ),
-    ];
-
-    _rideHistory = [
-      RideModel(
-        id: 'r1',
-        rideType: 'boda',
-        fromAddress: 'Stone Town, Mjini',
-        toAddress: 'Nungwi Beach',
-        fromLat: -6.1650,
-        fromLng: 39.1910,
-        toLat: -5.7260,
-        toLng: 39.2930,
-        estimatedFare: 8500,
-        finalFare: 8500,
-        etaMinutes: 45,
-        status: 'completed',
-        paymentMethod: 'cash',
-        rating: 5,
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-        completedAt: DateTime.now().subtract(const Duration(days: 2)),
-        driver: DriverModel(
-          id: 'd1',
-          name: 'Juma Ali',
-          phone: '+255712345678',
-          vehicleNumber: 'T 123 ABC',
-          vehicleType: 'Boda',
-          rating: 4.9,
-        ),
-      ),
-      RideModel(
-        id: 'r2',
-        rideType: 'taxi',
-        fromAddress: 'Airport (ZNZ)',
-        toAddress: 'Paje Beach',
-        fromLat: -6.2220,
-        fromLng: 39.2250,
-        toLat: -6.2650,
-        toLng: 39.5350,
-        estimatedFare: 25000,
-        finalFare: 25000,
-        etaMinutes: 55,
-        status: 'completed',
-        paymentMethod: 'momo',
-        rating: 4,
-        createdAt: DateTime.now().subtract(const Duration(days: 5)),
-        completedAt: DateTime.now().subtract(const Duration(days: 5)),
-        driver: DriverModel(
-          id: 'd2',
-          name: 'Fatma Said',
-          phone: '+255754321098',
-          vehicleNumber: 'T 456 DEF',
-          vehicleType: 'Taxi',
-          rating: 4.7,
-        ),
-      ),
-    ];
-
-    _transactions = [
-      TransactionModel(
-        id: 't1',
-        type: 'topup',
-        title: 'Wallet Top-up (M-Pesa)',
-        amount: 20000,
-        paymentMethod: 'momo',
-        createdAt: DateTime.now().subtract(const Duration(days: 3)),
-      ),
-      TransactionModel(
-        id: 't2',
-        type: 'ride',
-        title: 'Ride: Stone Town → Nungwi',
-        amount: -8500,
-        paymentMethod: 'cash',
-        reference: 'r1',
-        createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      ),
-    ];
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
@@ -237,16 +145,21 @@ class AppProvider extends ChangeNotifier {
     _isAuthenticated = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isAuthenticated', true);
+    try {
+      _user = UserModel.fromJson(await RiderApi.me());
+    } catch (_) {
+      // Retain the user payload returned by OTP verification if /rider/me is temporarily unavailable.
+    }
+    await refreshAccountCollections();
+    await refreshRideHistory();
+    await refreshWallet();
     notifyListeners();
   }
 
   Future<void> logout() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rt = prefs.getString('refreshToken');
-      if (rt != null) {
-        await ApiClient.request('POST', '/auth/logout', body: {'refreshToken': rt}, auth: false);
-      }
+      // Match the web client's authenticated POST /auth/logout contract.
+      await ApiClient.request('POST', '/auth/logout');
     } catch (_) {}
     await ApiClient.clearTokens();
     _user = null;
@@ -296,8 +209,11 @@ class AppProvider extends ChangeNotifier {
   }) async {
     final fLat = fromLat ?? _currentLat;
     final fLng = fromLng ?? _currentLng;
-    final tLat = toLat ?? _currentLat;
-    final tLng = toLng ?? _currentLng;
+    final tLat = toLat;
+    final tLng = toLng;
+    if (fLat == 0 || fLng == 0 || tLat == null || tLng == null || tLat == 0 || tLng == 0) {
+      throw Exception('Choose a real pickup and destination from the map before booking.');
+    }
     final pay = paymentMethod ?? 'cash';
     final promo = promoCode ?? _pendingPromoCode;
 
@@ -324,19 +240,29 @@ class AppProvider extends ChangeNotifier {
       };
       remote = await RiderApi.createRide(body);
       // Prefer server fare if present
-      if (q['estimatedFare'] != null) {
-        estimatedFare = double.tryParse(q['estimatedFare'].toString()) ?? estimatedFare;
+      final quotedFare = q['fare'] ?? q['estimatedFare'] ?? q['total'] ?? q['amount'];
+      if (quotedFare != null) {
+        estimatedFare = double.tryParse(quotedFare.toString()) ?? estimatedFare;
       }
-      if (q['estimatedDurationMin'] != null) {
-        etaMinutes = int.tryParse(q['estimatedDurationMin'].toString()) ?? etaMinutes;
+      final quotedDuration = q['durationMin'] ?? q['estimatedDurationMin'];
+      if (quotedDuration != null) {
+        etaMinutes = int.tryParse(quotedDuration.toString()) ?? etaMinutes;
       }
     } catch (e) {
       // Surface to caller
       rethrow;
     }
 
-    final id = (remote['id'] ?? remote['rideId'] ?? remote['ride_code'] ?? _uuid.v4()).toString();
-    final pin = (remote['trip_pin'] ?? remote['tripPin'] ?? (1000 + DateTime.now().millisecond % 9000)).toString();
+    final remoteRide = remote['ride'] is Map
+        ? Map<String, dynamic>.from(remote['ride'] as Map)
+        : remote;
+    final rawId = remoteRide['id'] ?? remoteRide['rideId'] ?? remoteRide['ride_code'];
+    if (rawId == null || rawId.toString().trim().isEmpty) {
+      throw Exception('The booking API did not return a ride ID. No local ride was created.');
+    }
+    final id = rawId.toString();
+    final rawPin = remoteRide['trip_pin'] ?? remoteRide['tripPin'];
+    final pin = rawPin?.toString();
     final ride = RideModel(
       id: id,
       rideType: rideType,
@@ -346,9 +272,9 @@ class AppProvider extends ChangeNotifier {
       fromLng: fLng,
       toLat: tLat,
       toLng: tLng,
-      estimatedFare: double.tryParse((remote['estimated_fare'] ?? remote['estimatedFare'] ?? estimatedFare).toString()) ?? estimatedFare,
-      etaMinutes: etaMinutes,
-      status: (remote['status'] ?? 'searching').toString(),
+      estimatedFare: double.tryParse((remoteRide['fare'] ?? remoteRide['estimated_fare'] ?? remoteRide['estimatedFare'] ?? remoteRide['totalFare'] ?? estimatedFare).toString()) ?? estimatedFare,
+      etaMinutes: int.tryParse((remoteRide['durationMin'] ?? remoteRide['estimated_duration_min'] ?? remoteRide['estimatedDurationMin'] ?? etaMinutes).toString()) ?? etaMinutes,
+      status: (remoteRide['status'] ?? 'requested').toString(),
       paymentMethod: pay,
       promoCode: promo,
       discount: discount ?? _pendingDiscount,
@@ -359,6 +285,28 @@ class AppProvider extends ChangeNotifier {
     _pendingDiscount = 0;
     notifyListeners();
     return ride;
+  }
+
+  Future<void> refreshAccountCollections() async {
+    if (_user == null) return;
+    try {
+      final results = await Future.wait([
+        RiderApi.paymentMethods(),
+        RiderApi.savedLocations(),
+      ]);
+      final methods = results[0]
+          .whereType<Map>()
+          .map((e) => PaymentMethodModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      final locations = results[1]
+          .whereType<Map>()
+          .map((e) => SavedLocationModel.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      _user = _user!.copyWith(paymentMethods: methods, savedLocations: locations);
+      notifyListeners();
+    } catch (_) {
+      // Preserve the account screen if an optional collection endpoint is unavailable.
+    }
   }
 
   Future<void> refreshRideHistory() async {
@@ -377,8 +325,8 @@ class AppProvider extends ChangeNotifier {
           toLng: double.tryParse((m['destination_lng'] ?? 0).toString()) ?? 0,
           estimatedFare: double.tryParse((m['estimated_fare'] ?? m['final_fare'] ?? 0).toString()) ?? 0,
           finalFare: double.tryParse((m['final_fare'] ?? 0).toString()),
-          etaMinutes: int.tryParse((m['estimated_duration_min'] ?? 15).toString()) ?? 15,
-          status: (m['status'] ?? 'completed').toString(),
+          etaMinutes: int.tryParse((m['estimated_duration_min'] ?? m['estimatedDurationMin'] ?? 0).toString()) ?? 0,
+          status: (m['status'] ?? 'unknown').toString(),
           paymentMethod: (m['payment_method'] ?? 'cash').toString(),
           createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) : null,
         );
@@ -397,7 +345,7 @@ class AppProvider extends ChangeNotifier {
         final m = Map<String, dynamic>.from(e as Map);
         return TransactionModel(
           id: (m['id'] ?? '').toString(),
-          type: (m['type'] ?? 'topup').toString(),
+          type: (m['type'] ?? 'unknown').toString(),
           title: (m['description'] ?? m['type'] ?? 'Transaction').toString(),
           amount: double.tryParse((m['amount'] ?? 0).toString()) ?? 0,
           paymentMethod: (m['payment_method'] ?? '').toString(),
@@ -410,76 +358,22 @@ class AppProvider extends ChangeNotifier {
   Future<void> cancelActiveRide({String? reason}) async {
     if (_activeRide == null) return;
     await RiderApi.cancelRide(_activeRide!.id, reason ?? 'Cancelled by rider');
-    final cancelled = _activeRide!.copyWith(
-      status: 'cancelled',
-      cancelReason: reason,
-      completedAt: DateTime.now(),
-    );
-    _rideHistory.insert(0, cancelled);
     _activeRide = null;
+    await refreshRideHistory();
     notifyListeners();
   }
 
-  void completeActiveRide({
+  Future<void> completeActiveRide({
     double? finalFare,
     int? rating,
     String? feedback,
     double? tip,
-  }) {
-    if (_activeRide == null) return;
-    final fare = finalFare ?? _activeRide!.estimatedFare;
-    final discount = _activeRide!.discount ?? 0;
-    final tipAmount = tip ?? 0;
-    final total = (fare - discount + tipAmount).clamp(0, double.infinity);
-
-    final completed = _activeRide!.copyWith(
-      status: 'completed',
-      finalFare: fare,
-      completedAt: DateTime.now(),
-      rating: rating,
-      feedback: feedback,
-      tip: tip,
-    );
-    _rideHistory.insert(0, completed);
-
-    // Charge wallet if payment is wallet
-    if (completed.paymentMethod == 'wallet' && _user != null) {
-      final newBal = (_user!.walletBalance - total).clamp(0, double.infinity);
-      _user = _user!.copyWith(walletBalance: newBal.toDouble());
-    }
-
-    _transactions.insert(
-      0,
-      TransactionModel(
-        id: _uuid.v4(),
-        type: 'ride',
-        title: 'Ride: ${completed.fromAddress} → ${completed.toAddress}',
-        amount: -total.toDouble(),
-        paymentMethod: completed.paymentMethod,
-        reference: completed.id,
-      ),
-    );
-
-    if (tipAmount > 0) {
-      _transactions.insert(
-        0,
-        TransactionModel(
-          id: _uuid.v4(),
-          type: 'tip',
-          title: 'Tip to ${completed.driver?.name ?? 'Driver'}',
-          amount: -tipAmount,
-          paymentMethod: completed.paymentMethod,
-          reference: completed.id,
-        ),
-      );
-    }
-
+  }) async {
+    // The backend owns the completed ride, fare, wallet, and transaction ledger.
+    // Refresh authoritative records rather than synthesizing local completion data.
     _activeRide = null;
-    notifyListeners();
-  }
-
-  void addToHistory(RideModel ride) {
-    _rideHistory.insert(0, ride);
+    await refreshRideHistory();
+    await refreshWallet();
     notifyListeners();
   }
 
@@ -490,8 +384,9 @@ class AppProvider extends ChangeNotifier {
       _pendingPromoCode = (r['code'] ?? code).toString();
       _pendingDiscount = double.tryParse((r['discount'] ?? discount).toString()) ?? discount;
     } catch (_) {
-      _pendingPromoCode = code;
-      _pendingDiscount = discount;
+      _pendingPromoCode = null;
+      _pendingDiscount = 0;
+      rethrow;
     }
     notifyListeners();
   }
@@ -503,38 +398,27 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ─── Payment methods ───────────────────────────────────────────
-  void addPaymentMethod(PaymentMethodModel method) {
-    if (_user == null) return;
-    final methods = List<PaymentMethodModel>.from(_user!.paymentMethods);
-    final shouldDefault = method.isDefault || methods.isEmpty;
-    final normalized = method.copyWith(isDefault: shouldDefault);
-    if (shouldDefault) {
-      for (var i = 0; i < methods.length; i++) {
-        methods[i] = methods[i].copyWith(isDefault: false);
-      }
-    }
-    methods.add(normalized);
-    _user = _user!.copyWith(paymentMethods: methods);
-    notifyListeners();
+  Future<void> addPaymentMethod(PaymentMethodModel method) async {
+    final body = <String, dynamic>{
+      'type': method.type == 'bank' ? 'card' : method.type,
+      'label': method.cardHolder ?? method.provider ?? method.type,
+      if (method.provider != null) 'provider': method.provider,
+      if (method.accountNumber != null) 'account': method.accountNumber,
+      if (method.cardLast4 != null) 'last4': method.cardLast4,
+      if (method.expiry != null) 'expiry': method.expiry,
+    };
+    await RiderApi.addPaymentMethod(body);
+    await refreshAccountCollections();
   }
 
-  void removePaymentMethod(String id) {
-    if (_user == null) return;
-    final methods = _user!.paymentMethods.where((m) => m.id != id).toList();
-    if (methods.isNotEmpty && !methods.any((m) => m.isDefault)) {
-      methods[0] = methods.first.copyWith(isDefault: true);
-    }
-    _user = _user!.copyWith(paymentMethods: methods);
-    notifyListeners();
+  Future<void> removePaymentMethod(String id) async {
+    await RiderApi.deletePaymentMethod(id);
+    await refreshAccountCollections();
   }
 
-  void setDefaultPaymentMethod(String id) {
-    if (_user == null) return;
-    final methods = _user!.paymentMethods
-        .map((m) => m.copyWith(isDefault: m.id == id))
-        .toList();
-    _user = _user!.copyWith(paymentMethods: methods);
-    notifyListeners();
+  Future<void> setDefaultPaymentMethod(String id) async {
+    await RiderApi.setDefaultPaymentMethod(id);
+    await refreshAccountCollections();
   }
 
   PaymentMethodModel? get defaultPaymentMethod {
@@ -546,28 +430,86 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ─── Saved locations ───────────────────────────────────────────
-  void addSavedLocation(SavedLocationModel location) {
-    if (_user == null) return;
-    final locations = List<SavedLocationModel>.from(_user!.savedLocations)
-      ..add(location);
-    _user = _user!.copyWith(savedLocations: locations);
-    notifyListeners();
+  Future<void> addSavedLocation(SavedLocationModel location) async {
+    if (location.lat == null || location.lng == null) {
+      throw Exception('Select a real map location with latitude and longitude before saving.');
+    }
+    await RiderApi.createSavedLocation({
+      'label': location.label,
+      'address': location.address,
+      'lat': location.lat,
+      'lng': location.lng,
+    });
+    await refreshAccountCollections();
   }
 
-  void removeSavedLocation(String id) {
-    if (_user == null) return;
-    _user = _user!.copyWith(
-      savedLocations: _user!.savedLocations.where((l) => l.id != id).toList(),
-    );
-    notifyListeners();
+  Future<void> removeSavedLocation(String id) async {
+    await RiderApi.deleteSavedLocation(id);
+    await refreshAccountCollections();
+  }
+
+  Future<void> refreshConversations() async {
+    try {
+      final rows = await RiderApi.conversations();
+      _conversations = rows.whereType<Map>().map((row) {
+        final m = Map<String, dynamic>.from(row);
+        final id = (m['id'] ?? m['_id'] ?? m['conversationId'] ?? '').toString();
+        final last = m['lastMessage'] is Map ? Map<String, dynamic>.from(m['lastMessage']) : <String, dynamic>{};
+        final lastText = (last['text'] ?? m['lastMessageText'] ?? '').toString();
+        final messages = lastText.isEmpty ? <ChatMessage>[] : <ChatMessage>[
+          ChatMessage(
+            id: (last['id'] ?? last['_id'] ?? '').toString(),
+            senderId: (last['senderId'] ?? last['sender'] ?? '').toString(),
+            text: lastText,
+            timestamp: DateTime.tryParse((last['createdAt'] ?? last['created_at'] ?? '').toString()) ?? DateTime.now(),
+          ),
+        ];
+        return ChatConversation(
+          id: id,
+          title: (m['title'] ?? m['name'] ?? m['driverName'] ?? 'Conversation').toString(),
+          isSupport: m['isSupport'] == true || m['type'] == 'support',
+          isPinned: m['isPinned'] == true,
+          messages: messages,
+          lastMessageAt: DateTime.tryParse((m['lastMessageAt'] ?? m['updatedAt'] ?? m['updated_at'] ?? '').toString()) ?? DateTime.now(),
+        );
+      }).where((c) => c.id.isNotEmpty).toList();
+      notifyListeners();
+    } catch (_) {
+      // Keep existing conversations visible on transient API errors.
+    }
+  }
+
+  Future<void> refreshConversationMessages(String conversationId) async {
+    try {
+      final rows = await RiderApi.messages(conversationId);
+      final messages = rows.whereType<Map>().map((row) {
+        final m = Map<String, dynamic>.from(row);
+        return ChatMessage(
+          id: (m['id'] ?? m['_id'] ?? '').toString(),
+          senderId: (m['senderId'] ?? m['sender'] ?? '').toString(),
+          text: (m['text'] ?? m['message'] ?? '').toString(),
+          timestamp: DateTime.tryParse((m['createdAt'] ?? m['created_at'] ?? '').toString()) ?? DateTime.now(),
+          isEdited: m['isEdited'] == true,
+          isDeleted: m['isDeleted'] == true,
+        );
+      }).toList();
+      final idx = _conversations.indexWhere((c) => c.id == conversationId);
+      if (idx >= 0) {
+        final current = _conversations[idx];
+        _conversations[idx] = current.copyWith(messages: messages);
+        notifyListeners();
+      }
+      await RiderApi.markRead(conversationId);
+    } catch (_) {}
+  }
+
+  Future<void> sendChatMessage(String conversationId, String text) async {
+    await RiderApi.sendMessage(conversationId, text);
+    await refreshConversationMessages(conversationId);
+    await refreshConversations();
   }
 
   // ─── Chat ──────────────────────────────────────────────────────
-  void deleteConversation(String id) {
-    _conversations.removeWhere((c) => c.id == id);
-    notifyListeners();
-  }
-
   void addOrUpdateConversation(ChatConversation conversation) {
     final idx = _conversations.indexWhere((c) => c.id == conversation.id);
     if (idx >= 0) {
@@ -590,37 +532,19 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  ChatConversation ensureDriverChat(DriverModel driver) {
-    final existing = _conversations.where((c) => c.id == driver.id).toList();
-    if (existing.isNotEmpty) return existing.first;
-    final conv = ChatConversation(
-      id: driver.id,
-      title: driver.name,
-      messages: [
-        ChatMessage(
-          id: _uuid.v4(),
-          senderId: 'driver',
-          text: 'Habari! I am ${driver.name}, your driver. See you soon!',
-        ),
-      ],
-    );
-    _conversations.insert(0, conv);
-    notifyListeners();
-    return conv;
-  }
-
   // ─── Wallet / Transactions ─────────────────────────────────────
-  void addTransaction(TransactionModel tx) {
-    _transactions.insert(0, tx);
-    notifyListeners();
-  }
-
-  Future<bool> topUpWalletLive({required double amount, required String paymentMethod}) async {
+  Future<bool> topUpWalletLive({
+    required double amount,
+    required String paymentMethod,
+    String? phone,
+  }) async {
     try {
-      final d = await RiderApi.topUp(amount: amount, paymentMethod: paymentMethod);
-      final bal = double.tryParse((d['balance'] ?? d['walletBalance'] ?? walletBalance).toString());
+      final apiMethod = paymentMethod == 'bank' ? 'card' : paymentMethod;
+      final d = await RiderApi.topUp(amount: amount, paymentMethod: apiMethod, phone: phone);
+      final bal = double.tryParse((d['balance'] ?? d['walletBalance'] ?? '').toString());
       if (bal != null) updateWallet(bal);
-      else updateWallet(walletBalance + amount);
+      final paymentId = (d['paymentId'] ?? d['id'] ?? (d['data'] is Map ? d['data']['paymentId'] : null) ?? '').toString();
+      if (paymentId.isNotEmpty) unawaited(_pollTopUpStatus(paymentId));
       await refreshWallet();
       return true;
     } catch (_) {
@@ -628,25 +552,21 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  bool topUpWallet({
-    required double amount,
-    required String paymentMethod,
-    String? provider,
-  }) {
-    if (_user == null || amount <= 0) return false;
-    _user = _user!.copyWith(walletBalance: _user!.walletBalance + amount);
-    _transactions.insert(
-      0,
-      TransactionModel(
-        id: _uuid.v4(),
-        type: 'topup',
-        title: 'Wallet Top-up${provider != null ? ' ($provider)' : ''}',
-        amount: amount,
-        paymentMethod: paymentMethod,
-      ),
-    );
-    notifyListeners();
-    return true;
+  Future<void> _pollTopUpStatus(String paymentId) async {
+    for (var attempt = 0; attempt < 12; attempt++) {
+      await Future<void>.delayed(const Duration(seconds: 3));
+      try {
+        final statusData = await RiderApi.topUpStatus(paymentId);
+        final status = (statusData['status'] ?? '').toString().toLowerCase();
+        if (status == 'success' || status == 'completed' || status == 'paid') {
+          await refreshWallet();
+          return;
+        }
+        if (status == 'failed' || status == 'cancelled') return;
+      } catch (_) {
+        // Keep polling while the payment provider settles asynchronously.
+      }
+    }
   }
 
   bool hasSufficientWallet(double amount) {

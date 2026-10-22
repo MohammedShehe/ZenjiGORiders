@@ -1,9 +1,12 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/api/rider_api.dart';
@@ -23,7 +26,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _fromCtrl = TextEditingController(text: 'Current Location');
+  final _fromCtrl = TextEditingController();
   final _toCtrl = TextEditingController();
   String? _selectedRideType;
   bool _searching = false;
@@ -33,14 +36,21 @@ class _HomeScreenState extends State<HomeScreen> {
   double? _toLat;
   double? _toLng;
 
-  // Zanzibar center
-  static const LatLng _zanzibarCenter = LatLng(-6.1659, 39.2026);
-
   final List<LatLng> _nearbyDrivers = [];
+  gmaps.GoogleMapController? _googleMapController;
+  Timer? _nearbyTimer;
   bool _locationLoading = false;
+  bool _placesLoading = false;
+  int _placesRequest = 0;
+  List<Map<String, dynamic>> _placeSuggestions = [];
+  static const String _placesApiKey = String.fromEnvironment(
+    'GOOGLE_MAPS_API_KEY',
+    defaultValue: 'AIzaSyD2_9WpUt3D0SlOJTMKY5kK_omBZ0tUhC4',
+  );
 
   @override
   void dispose() {
+    _nearbyTimer?.cancel();
     _fromCtrl.dispose();
     _toCtrl.dispose();
     super.dispose();
@@ -71,22 +81,136 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       final pos = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
       if (!mounted) return;
-      context.read<AppProvider>().setCurrentLocation(lat: pos.latitude, lng: pos.longitude,
-        address: 'Current Location (${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})');
-      _fromCtrl.text = 'Current Location (${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})';
+      var pickupAddress = 'Current Location (${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})';
       try {
-        final drivers = await RiderApi.nearbyDrivers(pos.latitude, pos.longitude);
-        if (!mounted) return;
-        setState(() {
-          _nearbyDrivers
-            ..clear()
-            ..addAll(drivers.map((e) => Map<String, dynamic>.from(e as Map)).where((d) => d['lat'] != null && d['lng'] != null)
-              .map((d) => LatLng(double.parse(d['lat'].toString()), double.parse(d['lng'].toString()))));
+        final reverseUri = Uri.https('maps.googleapis.com', '/maps/api/geocode/json', {
+          'latlng': '${pos.latitude},${pos.longitude}',
+          'key': _placesApiKey,
         });
-      } catch (_) { /* Nearby driver markers are optional; booking still uses the live backend. */ }
+        final reverseResponse = await http.get(reverseUri).timeout(const Duration(seconds: 6));
+        final reverseData = jsonDecode(reverseResponse.body);
+        if (reverseResponse.statusCode == 200 && reverseData is Map && reverseData['status'] == 'OK' &&
+            reverseData['results'] is List && (reverseData['results'] as List).isNotEmpty) {
+          pickupAddress = (reverseData['results'][0]['formatted_address'] ?? pickupAddress).toString();
+        }
+      } catch (_) {
+        // GPS coordinates remain valid even if reverse geocoding is temporarily unavailable.
+      }
+      if (!mounted) return;
+      context.read<AppProvider>().setCurrentLocation(lat: pos.latitude, lng: pos.longitude, address: pickupAddress);
+      _fromCtrl.text = pickupAddress;
+      _googleMapController?.animateCamera(gmaps.CameraUpdate.newLatLng(
+        gmaps.LatLng(pos.latitude, pos.longitude),
+      ));
+      await _refreshNearbyDrivers();
+      _nearbyTimer ??= Timer.periodic(const Duration(seconds: 15), (_) => _refreshNearbyDrivers());
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
     } finally { if (mounted) setState(() => _locationLoading = false); }
+  }
+
+  Future<void> _refreshNearbyDrivers() async {
+    final app = context.read<AppProvider>();
+    if (app.currentLat == 0 || app.currentLng == 0) return;
+    try {
+      final drivers = await RiderApi.nearbyDrivers(app.currentLat, app.currentLng);
+      if (!mounted) return;
+      final points = <LatLng>[];
+      for (final item in drivers) {
+        if (item is! Map) continue;
+        final data = Map<String, dynamic>.from(item);
+        final lat = double.tryParse((data['lat'] ?? data['latitude'] ?? '').toString());
+        final lng = double.tryParse((data['lng'] ?? data['longitude'] ?? '').toString());
+        if (lat != null && lng != null && lat != 0 && lng != 0) points.add(LatLng(lat, lng));
+      }
+      setState(() {
+        _nearbyDrivers
+          ..clear()
+          ..addAll(points);
+      });
+    } catch (_) {
+      // Keep last server-provided driver locations during transient network errors.
+    }
+  }
+
+  Future<void> _searchPlaces(String query) async {
+    final q = query.trim();
+    final requestId = ++_placesRequest;
+    setState(() {
+      _toLat = null;
+      _toLng = null;
+      _estimatedFare = null;
+      _eta = null;
+      _placesLoading = false;
+      _placeSuggestions = [];
+    });
+    if (q.length < 3) return;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted || requestId != _placesRequest) return;
+    setState(() => _placesLoading = true);
+    try {
+      final uri = Uri.https('maps.googleapis.com', '/maps/api/place/autocomplete/json', {
+        'input': q,
+        'key': _placesApiKey,
+        'components': 'country:tz',
+      });
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      final decoded = jsonDecode(response.body);
+      if (response.statusCode != 200 || decoded is! Map || decoded['status'] != 'OK' && decoded['status'] != 'ZERO_RESULTS') {
+        throw Exception(decoded is Map ? (decoded['error_message'] ?? decoded['status'] ?? 'Places search failed').toString() : 'Places search failed');
+      }
+      final predictions = decoded['predictions'];
+      if (!mounted || requestId != _placesRequest) return;
+      setState(() => _placeSuggestions = predictions is List
+          ? predictions.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+          : []);
+    } catch (e) {
+      if (mounted && requestId == _placesRequest) {
+        setState(() => _placeSuggestions = []);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Google Places search unavailable: ${e.toString().replaceFirst('Exception: ', '')}'),
+        ));
+      }
+    } finally {
+      if (mounted && requestId == _placesRequest) setState(() => _placesLoading = false);
+    }
+  }
+
+  Future<void> _selectPlace(Map<String, dynamic> place) async {
+    final placeId = (place['place_id'] ?? '').toString();
+    if (placeId.isEmpty) return;
+    setState(() { _placesLoading = true; _placeSuggestions = []; });
+    try {
+      final uri = Uri.https('maps.googleapis.com', '/maps/api/place/details/json', {
+        'place_id': placeId,
+        'fields': 'formatted_address,geometry',
+        'key': _placesApiKey,
+      });
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      final decoded = jsonDecode(response.body);
+      if (response.statusCode != 200 || decoded is! Map || decoded['status'] != 'OK') {
+        throw Exception(decoded is Map ? (decoded['error_message'] ?? decoded['status'] ?? 'Could not resolve place').toString() : 'Could not resolve place');
+      }
+      final result = Map<String, dynamic>.from(decoded['result'] as Map);
+      final geometry = Map<String, dynamic>.from(result['geometry'] as Map);
+      final location = Map<String, dynamic>.from(geometry['location'] as Map);
+      final lat = double.tryParse(location['lat'].toString());
+      final lng = double.tryParse(location['lng'].toString());
+      if (lat == null || lng == null) throw Exception('Google Places returned no coordinates.');
+      if (!mounted) return;
+      setState(() {
+        _toCtrl.text = (result['formatted_address'] ?? place['description'] ?? '').toString();
+        _toLat = lat;
+        _toLng = lng;
+        _estimatedFare = null;
+        _eta = null;
+      });
+      FocusScope.of(context).unfocus();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    } finally {
+      if (mounted) setState(() => _placesLoading = false);
+    }
   }
 
   void _selectRide(String id) {
@@ -107,7 +231,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     // Wallet balance check
     if (_paymentMethod == 'wallet') {
-      final fare = (_estimatedFare ?? 5000) - app.pendingDiscount;
+      if (_estimatedFare == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Get a live quote before booking with your wallet.')));
+        return;
+      }
+      final fare = (_estimatedFare! - app.pendingDiscount).clamp(0, double.infinity).toDouble();
       if (!app.hasSufficientWallet(fare)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(app.t('Insufficient wallet balance', 'Salio la pochi haitoshi'))),
@@ -115,8 +243,12 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
     }
+    if (app.currentLat == 0 || app.currentLng == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A real pickup location is required. Enable location services and retry.')));
+      return;
+    }
     if (_toLat == null || _toLng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a destination from Saved locations so its real map coordinates can be used.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose a destination from Google Places suggestions so real map coordinates can be used.')));
       return;
     }
 
@@ -130,8 +262,10 @@ class _HomeScreenState extends State<HomeScreen> {
         destinationLat: _toLat!,
         destinationLng: _toLng!,
       );
-      if (q['estimatedFare'] != null) _estimatedFare = double.tryParse(q['estimatedFare'].toString()) ?? _estimatedFare;
-      if (q['estimatedDurationMin'] != null) _eta = int.tryParse(q['estimatedDurationMin'].toString()) ?? _eta;
+      final quoteFare = q['fare'] ?? q['estimatedFare'] ?? q['total'] ?? q['amount'];
+      if (quoteFare != null) _estimatedFare = double.tryParse(quoteFare.toString()) ?? _estimatedFare;
+      final quoteDuration = q['durationMin'] ?? q['estimatedDurationMin'];
+      if (quoteDuration != null) _eta = int.tryParse(quoteDuration.toString()) ?? _eta;
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not get a live fare quote: ${e.toString().replaceFirst('Exception: ', '')}')));
       if (mounted) setState(() => _searching = false);
@@ -146,8 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
           rideType: _selectedRideType!,
           from: _fromCtrl.text,
           to: _toCtrl.text,
-          fare: _estimatedFare ?? 5000,
-          eta: _eta ?? 15,
+          fare: _estimatedFare,
+          eta: _eta,
           fromLat: app.currentLat,
           fromLng: app.currentLng,
           toLat: _toLat,
@@ -255,11 +389,8 @@ class _HomeScreenState extends State<HomeScreen> {
         _toCtrl.text = picked.address;
         _toLat = picked.lat;
         _toLng = picked.lng;
-        if (_selectedRideType != null) {
-          final type = AppConstants.rideTypes.firstWhere((r) => r['id'] == _selectedRideType);
-          _estimatedFare = (type['baseFare'] as int) + (type['perKm'] as int) * 8.0;
-          _eta = 15;
-        }
+        _estimatedFare = null;
+        _eta = null;
       });
     }
   }
@@ -273,48 +404,48 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Map
-          FlutterMap(
-            options: MapOptions(
-              initialCenter: LatLng(app.currentLat, app.currentLng),
-              initialZoom: 14,
-              interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
+          // Google Maps SDK map, using the same Google Maps platform key as the web project.
+          gmaps.GoogleMap(
+            onMapCreated: (controller) {
+              _googleMapController = controller;
+              final app = context.read<AppProvider>();
+              if (app.currentLat != 0 && app.currentLng != 0) {
+                controller.animateCamera(gmaps.CameraUpdate.newLatLng(
+                  gmaps.LatLng(app.currentLat, app.currentLng),
+                ));
+              }
+            },
+            initialCameraPosition: gmaps.CameraPosition(
+              target: app.currentLat != 0 && app.currentLng != 0
+                  ? gmaps.LatLng(app.currentLat, app.currentLng)
+                  : const gmaps.LatLng(-6.1659, 39.2026),
+              zoom: 14,
             ),
-            children: [
-              TileLayer(
-                // Voyager keeps land warm and the ocean cool, which fits the
-              // Zanzibar palette while retaining a fully functional map.
-              urlTemplate: isDark
-                    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'com.zenjigo.riders',
-              ),
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: LatLng(app.currentLat, app.currentLng),
-                    width: 40,
-                    height: 40,
-                    child: Icon(Icons.my_location, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal, size: 28),
-                  ),
-                  ..._nearbyDrivers.map((p) => Marker(
-                        point: p,
-                        width: 36,
-                        height: 36,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: AppColors.brightGreen,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                          ),
-                          child: const Icon(Icons.two_wheeler, color: Colors.white, size: 18),
-                        ),
-                      )),
-                ],
-              ),
-            ],
+            myLocationEnabled: app.currentLat != 0 && app.currentLng != 0,
+            myLocationButtonEnabled: true,
+            zoomControlsEnabled: false,
+            compassEnabled: true,
+            markers: {
+              if (app.currentLat != 0 && app.currentLng != 0)
+                gmaps.Marker(
+                  markerId: const gmaps.MarkerId('rider-pickup'),
+                  position: gmaps.LatLng(app.currentLat, app.currentLng),
+                  infoWindow: const gmaps.InfoWindow(title: 'Your pickup'),
+                ),
+              ..._nearbyDrivers.asMap().entries.map((entry) => gmaps.Marker(
+                    markerId: gmaps.MarkerId('driver-${entry.key}'),
+                    position: gmaps.LatLng(entry.value.latitude, entry.value.longitude),
+                    icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueGreen),
+                    infoWindow: const gmaps.InfoWindow(title: 'Nearby driver'),
+                  )),
+              if (_toLat != null && _toLng != null)
+                gmaps.Marker(
+                  markerId: const gmaps.MarkerId('destination'),
+                  position: gmaps.LatLng(_toLat!, _toLng!),
+                  icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueOrange),
+                  infoWindow: const gmaps.InfoWindow(title: 'Destination'),
+                ),
+            },
           ),
 
           // Top bar
@@ -338,15 +469,40 @@ class _HomeScreenState extends State<HomeScreen> {
                         _searchRow(Icons.my_location, app.t('From', 'Kutoka'), _fromCtrl, isDark, true),
                         Divider(height: 16, color: isDark ? AppColors.darkCard : Colors.grey.shade200),
                         _searchRow(Icons.location_on, app.t('Where to?', 'Unakwenda wapi?'), _toCtrl, isDark, false,
-                            onChanged: (v) {
-                          if (v.isNotEmpty && _selectedRideType != null) {
-                            final type = AppConstants.rideTypes.firstWhere((r) => r['id'] == _selectedRideType);
-                            setState(() {
-                              _estimatedFare = (type['baseFare'] as int) + (type['perKm'] as int) * 8.0;
-                              _eta = 15;
-                            });
-                          }
-                        }),
+                            onChanged: (v) => _searchPlaces(v)),
+                        if (_placesLoading) const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
+                        if (_placeSuggestions.isNotEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(top: 6),
+                            constraints: const BoxConstraints(maxHeight: 190),
+                            decoration: BoxDecoration(
+                              color: isDark ? AppColors.darkCard : Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: isDark ? AppColors.darkSurface : Colors.grey.shade200),
+                            ),
+                            child: ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: _placeSuggestions.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final place = _placeSuggestions[index];
+                                return ListTile(
+                                  dense: true,
+                                  leading: const Icon(Icons.location_on_outlined),
+                                  title: Text((place['structured_formatting'] is Map
+                                      ? (place['structured_formatting']['main_text'] ?? place['description'])
+                                      : place['description']).toString()),
+                                  subtitle: Text((place['structured_formatting'] is Map
+                                      ? (place['structured_formatting']['secondary_text'] ?? '')
+                                      : '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  onTap: () => _selectPlace(place),
+                                );
+                              },
+                            ),
+                          ),
                       ],
                     ),
                   ).animate().fadeIn().slideY(begin: -0.15, end: 0),
@@ -424,7 +580,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         final r = AppConstants.rideTypes[i];
                         final selected = _selectedRideType == r['id'];
                         return GestureDetector(
-                          onTap: () => _selectRide(r['id'] as String),
+                          onTap: () => _selectRide((r['id'] ?? '').toString()),
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
                             margin: const EdgeInsets.symmetric(vertical: 4),
@@ -451,11 +607,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        app.isSwahili ? r['nameSw'] as String : r['name'] as String,
+                                        (app.isSwahili ? r['nameSw'] : r['name']).toString(),
                                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                                       ),
                                       Text(
-                                        'TZS ${r['baseFare']}+',
+                                        'Get live quote',
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
@@ -481,7 +637,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             onPressed: _pickPaymentMethod,
                             icon: const Icon(Icons.payment, size: 18),
                             label: Text(
-                              AppConstants.paymentMethods.firstWhere((m) => m['id'] == _paymentMethod, orElse: () => AppConstants.paymentMethods[0])['name'] as String,
+                              AppConstants.paymentMethods.firstWhere((m) => m['id'] == _paymentMethod, orElse: () => AppConstants.paymentMethods[0])['name'].toString(),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),

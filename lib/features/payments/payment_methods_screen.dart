@@ -20,6 +20,14 @@ class PaymentMethodsScreen extends StatefulWidget {
 class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppProvider>().refreshAccountCollections();
+    });
+  }
+
   Future<void> _add() async {
     final method = await Navigator.push<PaymentMethodModel>(context, MaterialPageRoute(builder: (_) => const AddPaymentMethodScreen()));
     if (method != null && mounted) setState(() {});
@@ -44,17 +52,27 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
       ),
     );
     if (ok != true || !mounted) return;
-    app.removePaymentMethod(method.id);
+    setState(() => _busy = true);
+    try {
+      await app.removePaymentMethod(method.id);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _setDefault(PaymentMethodModel method) async {
     final app = context.read<AppProvider>();
     if (method.isDefault) return;
     setState(() => _busy = true);
-    await Future.delayed(const Duration(milliseconds: 350));
-    if (!mounted) return;
-    app.setDefaultPaymentMethod(method.id);
-    setState(() => _busy = false);
+    try {
+      await app.setDefaultPaymentMethod(method.id);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   @override

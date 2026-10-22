@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import '../../core/theme/app_colors.dart';
 import '../../models/ride_model.dart';
 import '../../providers/app_provider.dart';
@@ -30,38 +29,29 @@ class RideHistoryDetailsScreen extends StatelessWidget {
         children: [
           SizedBox(
             height: 200,
-            child: FlutterMap(
-              options: MapOptions(
-                initialCenter: LatLng(ride.fromLat, ride.fromLng),
-                initialZoom: 13,
-                interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: isDark
-                      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-                      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                  subdomains: const ['a', 'b', 'c', 'd'],
-                  userAgentPackageName: 'com.zenjigo.riders',
-                ),
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: LatLng(ride.fromLat, ride.fromLng),
-                      width: 36,
-                      height: 36,
-                      child: const Icon(Icons.person_pin_circle, color: AppColors.brightGreen, size: 32),
+            child: ride.fromLat != 0 && ride.fromLng != 0
+                ? gmaps.GoogleMap(
+                    initialCameraPosition: gmaps.CameraPosition(
+                      target: gmaps.LatLng(ride.fromLat, ride.fromLng),
+                      zoom: 13,
                     ),
-                    Marker(
-                      point: LatLng(ride.toLat, ride.toLng),
-                      width: 36,
-                      height: 36,
-                      child: const Icon(Icons.location_on, color: AppColors.sunsetOrange, size: 32),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                    zoomControlsEnabled: false,
+                    markers: {
+                      gmaps.Marker(
+                        markerId: const gmaps.MarkerId('pickup'),
+                        position: gmaps.LatLng(ride.fromLat, ride.fromLng),
+                        infoWindow: const gmaps.InfoWindow(title: 'Pickup'),
+                      ),
+                      if (ride.toLat != 0 && ride.toLng != 0)
+                        gmaps.Marker(
+                          markerId: const gmaps.MarkerId('destination'),
+                          position: gmaps.LatLng(ride.toLat, ride.toLng),
+                          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueOrange),
+                          infoWindow: const gmaps.InfoWindow(title: 'Destination'),
+                        ),
+                    },
+                  )
+                : const Center(child: Text('Ride coordinates are unavailable from the server.')),
           ),
           Padding(
             padding: const EdgeInsets.all(20),

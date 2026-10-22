@@ -1,143 +1,103 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
 import '../../providers/app_provider.dart';
-import 'parcel_screen.dart';
-import 'tour_packages_screen.dart';
+import 'package:provider/provider.dart';
 
-class PromotionsScreen extends StatelessWidget {
+class PromotionsScreen extends StatefulWidget {
   const PromotionsScreen({super.key});
 
-  static const offers = [
-    {'code': 'ZENJI50', 'desc': '50% off your first 3 rides', 'discount': 2500.0},
-    {'code': 'WEEKEND20', 'desc': '20% off weekend airport transfers', 'discount': 3000.0},
-    {'code': 'PARCEL10', 'desc': 'TZS 1000 off parcel deliveries', 'discount': 1000.0},
-    {'code': 'TOUR15', 'desc': '15% off full-day tour packages', 'discount': 5000.0},
-  ];
-
-  void _open(BuildContext context, Map offer) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => OfferDetailsScreen(
-          code: offer['code'] as String,
-          description: offer['desc'] as String,
-          discount: offer['discount'] as double,
-        ),
-      ),
-    );
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final app = context.watch<AppProvider>();
-    return Scaffold(
-      appBar: AppBar(title: Text(app.t('Promotions & Offers', 'Ofa & Promosheni'))),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: offers.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (_, index) {
-          final offer = offers[index];
-          return Card(
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: const CircleAvatar(child: Icon(Icons.local_offer)),
-              title: Text(offer['code'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(offer['desc'] as String),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _open(context, offer),
-            ),
-          );
-        },
-      ),
-    );
-  }
+  State<PromotionsScreen> createState() => _PromotionsScreenState();
 }
 
-class OfferDetailsScreen extends StatelessWidget {
-  final String code;
-  final String description;
-  final double discount;
-  const OfferDetailsScreen({
-    super.key,
-    required this.code,
-    required this.description,
-    required this.discount,
-  });
+class _PromotionsScreenState extends State<PromotionsScreen> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _offers = [];
 
-  void _copy(BuildContext context) {
-    Clipboard.setData(ClipboardData(text: code));
-    final app = context.read<AppProvider>();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(app.t('Offer code copied.', 'Nambari ya ofa imenakiliwa.'))),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  Future<void> _applyAndGoHome(BuildContext context) async {
-    final app = context.read<AppProvider>();
-    await app.applyPromo(code, discount);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(app.t('Promo $code applied', 'Promo $code imetumika'))),
-    );
-    // Pop back to MainShell home rather than pushing a standalone HomeScreen
-    Navigator.of(context).popUntil((route) => route.isFirst);
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final provider = context.read<AppProvider>() as dynamic;
+      final data = await provider.promos();
+      if (!mounted) return;
+      setState(() {
+        _offers = data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _error = e.toString().replaceFirst('Exception: ', ''); _loading = false; });
+    }
+  }
+
+  String _value(Map<String, dynamic> offer, List<String> keys, [String fallback = '']) {
+    for (final key in keys) {
+      final value = offer[key];
+      if (value != null && value.toString().trim().isNotEmpty) return value.toString();
+    }
+    return fallback;
+  }
+
+  Future<void> _apply(Map<String, dynamic> offer) async {
+    final code = _value(offer, ['code', 'promoCode', 'id']);
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This offer has no code from the server.')));
+      return;
+    }
+    try {
+      await context.read<AppProvider>().applyPromo(code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Promo validated by the server.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppProvider>();
     return Scaffold(
-      appBar: AppBar(title: Text(app.t('Offer Details', 'Maelezo ya Ofa'))),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Icon(Icons.local_offer, size: 72),
-          const SizedBox(height: 18),
-          Text(code, textAlign: TextAlign.center, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text(description, textAlign: TextAlign.center),
-          const SizedBox(height: 8),
-          Text(
-            app.t('Discount: TZS ${discount.toStringAsFixed(0)}', 'Punguzo: TZS ${discount.toStringAsFixed(0)}'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 22),
-          OutlinedButton.icon(
-            onPressed: () => _copy(context),
-            icon: const Icon(Icons.copy),
-            label: Text(app.t('Copy Code', 'Nakili Nambari')),
-          ),
-          const SizedBox(height: 14),
-          Text(app.t('Choose a service', 'Chagua huduma'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          const SizedBox(height: 10),
-          ListTile(
-            leading: const Icon(Icons.local_taxi),
-            title: Text(app.t('Use for a Ride', 'Tumia kwa Safari')),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () { _applyAndGoHome(context); },
-          ),
-          ListTile(
-            leading: const Icon(Icons.local_shipping),
-            title: Text(app.t('Use for Parcel Delivery', 'Tumia kwa Kifurushi')),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              context.read<AppProvider>().applyPromo(code, discount);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ParcelScreen()));
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.tour),
-            title: Text(app.t('Use for Tour Package', 'Tumia kwa Ziara')),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              context.read<AppProvider>().applyPromo(code, discount);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const TourPackagesScreen()));
-            },
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Promotions & Offers'), actions: [
+        IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh)),
+      ]),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    ElevatedButton(onPressed: _load, child: const Text('Retry')),
+                  ]),
+                ))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: _offers.isEmpty
+                      ? ListView(children: const [SizedBox(height: 160), Center(child: Text('No promotions are currently available.'))])
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _offers.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (_, index) {
+                            final offer = _offers[index];
+                            return Card(child: ListTile(
+                              contentPadding: const EdgeInsets.all(16),
+                              leading: const CircleAvatar(child: Icon(Icons.local_offer_outlined)),
+                              title: Text(_value(offer, ['code', 'promoCode', 'name', 'title'], 'Promotion'), style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text(_value(offer, ['description', 'details', 'discountDescription'])),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => _apply(offer),
+                            ));
+                          },
+                        ),
+                ),
     );
   }
 }
