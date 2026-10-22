@@ -38,7 +38,7 @@ flutter run --dart-define=ZENJIGO_API_URL=http://10.0.2.2:5000/api/v1
 
 ### Google Maps and Places
 
-The web portal uses Google Maps JavaScript and Places. The rider app now uses the Google Maps native SDK for maps and Google Places Autocomplete/Place Details for destination selection. The existing public key from the web config is currently wired in the platform files and is used as the Places default. Google Cloud keys often have platform/referrer restrictions: if this key is browser-restricted, replace it with a key configured for the Android Maps SDK, iOS Maps SDK, and Places API. Set the Places key at build time if needed:
+The Rider app uses the native Google Places SDK (Places API New) for destination autocomplete/details and the platform geocoder for reverse geocoding. Do not use the website key restricted to HTTP referrers in the mobile app: native app requests do not send an HTTP Referer, which causes `Requests from referer <empty> are blocked`. Create a separate key in the same Google Cloud project, enable Places API (New), and restrict it to Android apps (package name + SHA-1) or iOS apps (bundle ID). Enable Maps SDK for Android/iOS on the corresponding map key. Use the platform-specific restricted key at build time:
 
 ```bash
 flutter run \
@@ -46,7 +46,7 @@ flutter run \
   --dart-define=GOOGLE_MAPS_API_KEY=YOUR_PLACES_API_KEY
 ```
 
-For Android, update `android/app/src/main/AndroidManifest.xml` `com.google.android.geo.API_KEY`. For iOS, update `ios/Runner/AppDelegate.swift` `GMSServices.provideAPIKey(...)`. Restrict keys to your app identifiers and only the required APIs before production release.
+For Android, put the Android-restricted key in `android/app/src/main/AndroidManifest.xml` (`com.google.android.geo.API_KEY`) and pass that same Android key through `--dart-define=GOOGLE_MAPS_API_KEY=...`. For iOS, put the iOS-restricted key in `ios/Runner/AppDelegate.swift` (`GMSServices.provideAPIKey(...)`) and pass that same iOS key through the Dart define for the iOS build. Keep the website HTTP-referrer key separate so the website continues to work. Do not remove application restrictions to work around this error.
 
 ## Important behavior
 
@@ -71,7 +71,7 @@ This source archive was edited in an environment without the Flutter SDK, so a F
 - Rider sign-in and sign-up use a six-digit OTP field and require exactly six digits before verification.
 - API routes are the same `/api/v1` routes used by `ZenjiGOWeb/js/api.js`.
 - Default API URL is `http://10.0.2.2:5000/api/v1` for the Android emulator. For a physical phone, pass your backend's LAN or HTTPS URL using `--dart-define=ZENJIGO_API_URL=http://YOUR_LAN_IP:5000/api/v1`.
-- The Google Maps/Places key matches `ZenjiGOWeb/js/config.js`. Restrict/authorize it for Android, iOS and the required Google Maps SDKs and Places/Geocoding APIs. You may override the Flutter Places key with `--dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY`; native Maps SDK keys must also be configured for each platform.
+- The Rider app must use a separate Android/iOS application-restricted Places SDK key; do not reuse the website HTTP-referrer key for mobile REST calls. Build with `--dart-define=GOOGLE_MAPS_API_KEY=YOUR_PLATFORM_RESTRICTED_KEY` and configure the matching native Maps SDK key in AndroidManifest.xml or AppDelegate.swift.
 - Maps use device GPS, backend-provided nearby drivers, Google Places predictions/details, and backend ride quote/create/tracking APIs. No local ride is fabricated if the server fails to return a ride ID.
 
 

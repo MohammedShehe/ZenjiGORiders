@@ -1,12 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
+import 'package:geocoding/geocoding.dart';
+import 'package:flutter_google_places_sdk/flutter_google_places_sdk.dart' as places;
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/api/rider_api.dart';
@@ -43,10 +43,13 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _placesLoading = false;
   int _placesRequest = 0;
   List<Map<String, dynamic>> _placeSuggestions = [];
+  // Must be a native-app-restricted Places SDK key, not a website HTTP-referrer key.
   static const String _placesApiKey = String.fromEnvironment(
     'GOOGLE_MAPS_API_KEY',
-    defaultValue: 'AIzaSyD2_9WpUt3D0SlOJTMKY5kK_omBZ0tUhC4',
+    defaultValue: '',
   );
+  late final places.FlutterGooglePlacesSdk _placesClient =
+      places.FlutterGooglePlacesSdk(_placesApiKey, useNewApi: true);
 
   @override
   void dispose() {
@@ -83,15 +86,16 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       var pickupAddress = 'Current Location (${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})';
       try {
-        final reverseUri = Uri.https('maps.googleapis.com', '/maps/api/geocode/json', {
-          'latlng': '${pos.latitude},${pos.longitude}',
-          'key': _placesApiKey,
-        });
-        final reverseResponse = await http.get(reverseUri).timeout(const Duration(seconds: 6));
-        final reverseData = jsonDecode(reverseResponse.body);
-        if (reverseResponse.statusCode == 200 && reverseData is Map && reverseData['status'] == 'OK' &&
-            reverseData['results'] is List && (reverseData['results'] as List).isNotEmpty) {
-          pickupAddress = (reverseData['results'][0]['formatted_address'] ?? pickupAddress).toString();
+        // Use the platform geocoder; this avoids calling the Geocoding REST API
+        // with a website HTTP-referrer key (mobile REST requests have no Referer).
+        final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude)
+            .timeout(const Duration(seconds: 6));
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          final address = [
+            p.street, p.subLocality, p.locality, p.administrativeArea, p.country,
+          ].whereType<String>().map((v) => v.trim()).where((v) => v.isNotEmpty).toSet().join(', ');
+          if (address.isNotEmpty) pickupAddress = address;
         }
       } catch (_) {
         // GPS coordinates remain valid even if reverse geocoding is temporarily unavailable.
@@ -145,25 +149,36 @@ class _HomeScreenState extends State<HomeScreen> {
       _placeSuggestions = [];
     });
     if (q.length < 3) return;
+    if (_placesApiKey.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Google Places key is missing. Configure a native Android/iOS Places API key.'),
+      ));
+      return;
+    }
     await Future<void>.delayed(const Duration(milliseconds: 250));
     if (!mounted || requestId != _placesRequest) return;
     setState(() => _placesLoading = true);
     try {
-      final uri = Uri.https('maps.googleapis.com', '/maps/api/place/autocomplete/json', {
-        'input': q,
-        'key': _placesApiKey,
-        'components': 'country:tz',
-      });
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
-      final decoded = jsonDecode(response.body);
-      if (response.statusCode != 200 || decoded is! Map || decoded['status'] != 'OK' && decoded['status'] != 'ZERO_RESULTS') {
-        throw Exception(decoded is Map ? (decoded['error_message'] ?? decoded['status'] ?? 'Places search failed').toString() : 'Places search failed');
+      // Native SDK requests carry the app identity, unlike REST calls that
+      // send an empty HTTP Referer and are rejected by website-restricted keys.
+      final response = await _placesClient.findAutocompletePredictions(
+        q,
+        countries: const ['tz'],
+      );
+      final normalized = <Map<String, dynamic>>[];
+      for (final prediction in response.predictions) {
+        if (prediction.placeId.isEmpty || prediction.fullText.isEmpty) continue;
+        normalized.add({
+          'place_id': prediction.placeId,
+          'description': prediction.fullText,
+          'structured_formatting': {
+            'main_text': prediction.primaryText,
+            'secondary_text': prediction.secondaryText,
+          },
+        });
       }
-      final predictions = decoded['predictions'];
       if (!mounted || requestId != _placesRequest) return;
-      setState(() => _placeSuggestions = predictions is List
-          ? predictions.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
-          : []);
+      setState(() => _placeSuggestions = normalized);
     } catch (e) {
       if (mounted && requestId == _placesRequest) {
         setState(() => _placeSuggestions = []);
@@ -181,25 +196,23 @@ class _HomeScreenState extends State<HomeScreen> {
     if (placeId.isEmpty) return;
     setState(() { _placesLoading = true; _placeSuggestions = []; });
     try {
-      final uri = Uri.https('maps.googleapis.com', '/maps/api/place/details/json', {
-        'place_id': placeId,
-        'fields': 'formatted_address,geometry',
-        'key': _placesApiKey,
-      });
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
-      final decoded = jsonDecode(response.body);
-      if (response.statusCode != 200 || decoded is! Map || decoded['status'] != 'OK') {
-        throw Exception(decoded is Map ? (decoded['error_message'] ?? decoded['status'] ?? 'Could not resolve place').toString() : 'Could not resolve place');
+      if (_placesApiKey.isEmpty) {
+        throw Exception('Google Places key is missing. Configure a native Android/iOS Places API key.');
       }
-      final result = Map<String, dynamic>.from(decoded['result'] as Map);
-      final geometry = Map<String, dynamic>.from(result['geometry'] as Map);
-      final location = Map<String, dynamic>.from(geometry['location'] as Map);
-      final lat = double.tryParse(location['lat'].toString());
-      final lng = double.tryParse(location['lng'].toString());
-      if (lat == null || lng == null) throw Exception('Google Places returned no coordinates.');
+      final response = await _placesClient.fetchPlace(
+        placeId,
+        fields: const [places.PlaceField.Id, places.PlaceField.Address, places.PlaceField.Location, places.PlaceField.Name],
+      );
+      final result = response.place;
+      final location = result?.latLng;
+      if (result == null || location == null) {
+        throw Exception('Google Places returned no coordinates for this destination.');
+      }
+      final lat = location.lat;
+      final lng = location.lng;
       if (!mounted) return;
       setState(() {
-        _toCtrl.text = (result['formatted_address'] ?? place['description'] ?? '').toString();
+        _toCtrl.text = (result.address ?? place['description'] ?? '').toString();
         _toLat = lat;
         _toLng = lng;
         _estimatedFare = null;
@@ -213,9 +226,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _selectRide(String id) {
+  void _selectRide(String rideType) {
     setState(() {
-      _selectedRideType = id;
+      _selectedRideType = rideType;
       _estimatedFare = null;
       _eta = null;
     });
