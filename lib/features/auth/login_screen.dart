@@ -96,6 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await ApiClient.saveTokens(data);
       final user=UserModel.fromJson(Map<String,dynamic>.from(data['user']??{})); await context.read<AppProvider>().login(user);
       await PushService.instance.init();
+      await PushService.instance.registerTokenNow();
       if(!mounted)return; Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder:(_)=>const MainShell()),(_)=>false);
     } catch(e) { if(mounted) _showSnack(e.toString().replaceFirst('Exception: ','')); } finally { if(mounted) setState(()=>_loading=false); }
   }
