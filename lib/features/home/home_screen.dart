@@ -43,10 +43,12 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _placesLoading = false;
   int _placesRequest = 0;
   List<Map<String, dynamic>> _placeSuggestions = [];
-  // Must be a native-app-restricted Places SDK key, not a website HTTP-referrer key.
+  // Uses the same Android-restricted key already configured in AndroidManifest.xml.
+  // Override at build time for a separate platform-specific key: --dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY
+  // In Google Cloud Console, enable Places API (New) and restrict this key to this app.
   static const String _placesApiKey = String.fromEnvironment(
     'GOOGLE_MAPS_API_KEY',
-    defaultValue: '',
+    defaultValue: 'AIzaSyBX93zeEULXrhxlvkNefmoFcYDGizvvSpU',
   );
   late final places.FlutterGooglePlacesSdk _placesClient =
       places.FlutterGooglePlacesSdk(_placesApiKey, useNewApi: true);
