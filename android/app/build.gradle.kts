@@ -48,4 +48,7 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
+    implementation("com.google.j2objc:j2objc-annotations:3.0.0")
+
 }
