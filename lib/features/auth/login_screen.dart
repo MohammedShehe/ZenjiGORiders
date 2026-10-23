@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../services/push_service.dart';
 import 'package:pin_code_fields/pin_code_fields.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/theme/app_colors.dart';
@@ -94,6 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final data = await RiderApi.verifyOtp(phone, _otpController.text.trim(), email: _emailController.text.trim().toLowerCase());
       await ApiClient.saveTokens(data);
       final user=UserModel.fromJson(Map<String,dynamic>.from(data['user']??{})); await context.read<AppProvider>().login(user);
+      await PushService.instance.init();
       if(!mounted)return; Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder:(_)=>const MainShell()),(_)=>false);
     } catch(e) { if(mounted) _showSnack(e.toString().replaceFirst('Exception: ','')); } finally { if(mounted) setState(()=>_loading=false); }
   }

@@ -8,13 +8,16 @@ import 'features/splash/splash_screen.dart';
 import 'features/payments/payment_methods_screen.dart';
 import 'features/wallet/transaction_history_screen.dart';
 import 'features/wallet/referral_screen.dart';
+import 'services/push_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+  // FCM + local notifications (background live-tracking, ride status, offers)
+  await PushService.instance.init();
   runApp(const ZenjiGOApp());
 }
 

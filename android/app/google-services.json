@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "935076596620",
+    "project_id": "zenjigo-8ac02",
+    "storage_bucket": "zenjigo-8ac02.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:935076596620:android:6e7927a46f549c080264a9",
+        "android_client_info": {
+          "package_name": "com.zenjigo.riders"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "935076596620-npiaf21hhev1t4in26frt20pq6ellake.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDws0-gpgwfXHjqWu6KSq-PtfoS_rx5E0U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "935076596620-npiaf21hhev1t4in26frt20pq6ellake.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:935076596620:android:237a3c40b49b4a520264a9",
+        "android_client_info": {
+          "package_name": "online.zenjigo.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "935076596620-npiaf21hhev1t4in26frt20pq6ellake.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDws0-gpgwfXHjqWu6KSq-PtfoS_rx5E0U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "935076596620-npiaf21hhev1t4in26frt20pq6ellake.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
