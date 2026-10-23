@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiClient {
   static const String baseUrl = String.fromEnvironment(
     'ZENJIGO_API_URL',
-    defaultValue: 'http://192.168.0.109:5000/api/v1',
+    defaultValue: 'http://192.168.0.101:5000/api/v1',
   );
 
   static Future<String?> _access() async {
