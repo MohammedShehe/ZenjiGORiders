@@ -23,11 +23,10 @@ class _PromotionsScreenState extends State<PromotionsScreen> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final provider = context.read<AppProvider>() as dynamic;
-      final data = await provider.promos();
+      final data = await context.read<AppProvider>().promos();
       if (!mounted) return;
       setState(() {
-        _offers = data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        _offers = data;
         _loading = false;
       });
     } catch (e) {

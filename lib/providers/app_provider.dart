@@ -112,6 +112,12 @@ class AppProvider extends ChangeNotifier {
     _notificationsEnabled = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('notifications', enabled);
+    try {
+      await ApiClient.request('PATCH', '/rider/me', body: {
+        'notificationsEnabled': enabled,
+        'pushEnabled': enabled,
+      });
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -378,6 +384,14 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ─── Promo ─────────────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> promos() async {
+    final data = await RiderApi.promos();
+    return data
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
   Future<void> applyPromo(String code, [double discount = 0]) async {
     try {
       final r = await RiderApi.applyPromo(code);
@@ -404,11 +418,25 @@ class AppProvider extends ChangeNotifier {
       'label': method.cardHolder ?? method.provider ?? method.type,
       if (method.provider != null) 'provider': method.provider,
       if (method.accountNumber != null) 'account': method.accountNumber,
+      if (method.accountNumber != null) 'accountNumber': method.accountNumber,
       if (method.cardLast4 != null) 'last4': method.cardLast4,
+      if (method.cardLast4 != null) 'cardLast4': method.cardLast4,
       if (method.expiry != null) 'expiry': method.expiry,
+      if (method.cardHolder != null) 'cardHolder': method.cardHolder,
+      if (method.cardBrand != null) 'cardBrand': method.cardBrand,
+      'isDefault': method.isDefault,
     };
-    await RiderApi.addPaymentMethod(body);
+    final result = await RiderApi.addPaymentMethod(body);
     await refreshAccountCollections();
+    if (method.isDefault) {
+      final id = (result['id'] ?? result['_id'] ?? '').toString();
+      if (id.isNotEmpty) {
+        try {
+          await RiderApi.setDefaultPaymentMethod(id);
+          await refreshAccountCollections();
+        } catch (_) {}
+      }
+    }
   }
 
   Future<void> removePaymentMethod(String id) async {

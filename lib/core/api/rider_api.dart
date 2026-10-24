@@ -260,4 +260,37 @@ class RiderApi {
   static Future<void> markNotificationRead(String id) async {
     await ApiClient.data('PATCH', '/rider/notifications/$id/read');
   }
+
+  /* -------------------- Reports & App info -------------------- */
+  static Future<Map<String, dynamic>> reportDriver({
+    required String driverId,
+    required String reason,
+    String? rideId,
+    String? details,
+  }) async {
+    final d = await ApiClient.data('POST', '/rider/reports', body: {
+      'driverId': driverId,
+      'reason': reason,
+      if (rideId != null) 'rideId': rideId,
+      if (details != null) 'details': details,
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<Map<String, dynamic>> appVersion() async {
+    final d = await ApiClient.data('GET', '/rider/app-version');
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<void> sendEmailChangeOtp(String email) async {
+    await ApiClient.data('POST', '/rider/email-change/send-otp', body: {'email': email.trim().toLowerCase()});
+  }
+
+  static Future<Map<String, dynamic>> verifyEmailChangeOtp(String email, String code) async {
+    final d = await ApiClient.data('POST', '/rider/email-change/verify-otp', body: {
+      'email': email.trim().toLowerCase(),
+      'code': code.trim(),
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
 }

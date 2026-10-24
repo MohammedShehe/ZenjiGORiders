@@ -6,6 +6,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/money.dart';
+import '../../core/utils/directions_service.dart';
+import '../../core/utils/tanzania_time.dart';
 import '../../models/ride_model.dart';
 import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
@@ -57,6 +60,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   bool _noDriver = false;
   int _searchSeconds = 0;
   double _driverProgress = 0; // 0..1 toward pickup then destination
+  List<gmaps.LatLng> _routePoints = [];
+  List<gmaps.LatLng> _driverRoutePoints = [];
+  gmaps.GoogleMapController? _mapCtrl;
 
   @override
   void initState() {
@@ -64,6 +70,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     final app = context.read<AppProvider>();
     if (widget.existingRide != null) {
       _ride = widget.existingRide!;
+      _loadTripRoute();
       if (_ride.isActive) _continueLifecycle();
     } else {
       // Temporary placeholder until API returns
@@ -85,6 +92,58 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     }
   }
 
+
+  Future<void> _loadTripRoute() async {
+    final points = await DirectionsService.route(
+      originLat: _ride.fromLat,
+      originLng: _ride.fromLng,
+      destLat: _ride.toLat,
+      destLng: _ride.toLng,
+    );
+    if (!mounted) return;
+    setState(() => _routePoints = points);
+    _fitTrip();
+  }
+
+  Future<void> _loadDriverRoute() async {
+    if (_ride.driver == null || _ride.driver!.lat == 0) return;
+    final targetLat = (_ride.status == 'started' || _ride.status == 'in_progress')
+        ? _ride.toLat
+        : _ride.fromLat;
+    final targetLng = (_ride.status == 'started' || _ride.status == 'in_progress')
+        ? _ride.toLng
+        : _ride.fromLng;
+    final points = await DirectionsService.route(
+      originLat: _ride.driver!.lat,
+      originLng: _ride.driver!.lng,
+      destLat: targetLat,
+      destLng: targetLng,
+    );
+    if (!mounted) return;
+    setState(() => _driverRoutePoints = points);
+  }
+
+  Future<void> _fitTrip() async {
+    if (_mapCtrl == null || _routePoints.isEmpty) return;
+    double minLat = _routePoints.first.latitude, maxLat = minLat;
+    double minLng = _routePoints.first.longitude, maxLng = minLng;
+    for (final p in _routePoints) {
+      if (p.latitude < minLat) minLat = p.latitude;
+      if (p.latitude > maxLat) maxLat = p.latitude;
+      if (p.longitude < minLng) minLng = p.longitude;
+      if (p.longitude > maxLng) maxLng = p.longitude;
+    }
+    try {
+      await _mapCtrl!.animateCamera(gmaps.CameraUpdate.newLatLngBounds(
+        gmaps.LatLngBounds(
+          southwest: gmaps.LatLng(minLat, minLng),
+          northeast: gmaps.LatLng(maxLat, maxLng),
+        ),
+        64,
+      ));
+    } catch (_) {}
+  }
+
   Future<void> _bookLive() async {
     final app = context.read<AppProvider>();
     try {
@@ -104,6 +163,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       );
       if (!mounted) return;
       setState(() => _ride = ride);
+      _loadTripRoute();
       _startSearch();
     } catch (e) {
       if (!mounted) return;
@@ -168,6 +228,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         _noDriver = false;
       });
       context.read<AppProvider>().updateActiveRide(_ride);
+      if (driver != null) {
+        unawaited(_loadDriverRoute());
+      }
       if (status == 'completed' && !wasCompleted && _ride.rating == null) {
         _statusTimer?.cancel();
         await _showRatingAndComplete();
@@ -257,7 +320,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                   spacing: 8,
                   children: [0.0, 500.0, 1000.0, 2000.0].map((v) {
                     return ChoiceChip(
-                      label: Text(v == 0 ? app.t('No tip', 'Hakuna tip') : 'TZS ${v.toInt()}'),
+                      label: Text(v == 0 ? app.t('No tip', 'Hakuna tip') : formatTzs(v)),
                       selected: tip == v,
                       onSelected: (_) => setSheet(() => tip = v),
                     );
@@ -500,12 +563,35 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       body: Stack(
         children: [
           gmaps.GoogleMap(
+            onMapCreated: (c) {
+              _mapCtrl = c;
+              _fitTrip();
+            },
             initialCameraPosition: gmaps.CameraPosition(
               target: gmaps.LatLng(pickup.latitude, pickup.longitude),
               zoom: 14,
             ),
             myLocationButtonEnabled: true,
             zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
+            buildingsEnabled: false,
+            trafficEnabled: false,
+            polylines: {
+              if (_routePoints.length >= 2)
+                gmaps.Polyline(
+                  polylineId: const gmaps.PolylineId('trip'),
+                  points: _routePoints,
+                  color: AppColors.oceanTeal,
+                  width: 5,
+                ),
+              if (_driverRoutePoints.length >= 2)
+                gmaps.Polyline(
+                  polylineId: const gmaps.PolylineId('driver'),
+                  points: _driverRoutePoints,
+                  color: AppColors.brightGreen,
+                  width: 4,
+                ),
+            },
             markers: {
               gmaps.Marker(
                 markerId: const gmaps.MarkerId('pickup'),
@@ -694,10 +780,10 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text('TZS ${fare.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(formatTzs(fare), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 if (discount > 0)
                   Text(
-                    '-${discount.toStringAsFixed(0)} promo',
+                    '-${formatTzs(discount, withCurrency: false)} promo',
                     style: const TextStyle(fontSize: 11, color: AppColors.brightGreen),
                   ),
                 Text(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/money.dart';
 import '../../providers/app_provider.dart';
 import '../payments/payment_methods_screen.dart';
 import 'wallet_setup_screen.dart';
@@ -9,12 +10,14 @@ import 'referral_screen.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
-  @override State<WalletScreen> createState() => _WalletScreenState();
+  @override
+  State<WalletScreen> createState() => _WalletScreenState();
 }
 
 class _WalletScreenState extends State<WalletScreen> {
-  bool hide = false;
-  double amount = 5000;
+  /// Balance hidden by default for privacy.
+  bool _hideBalance = true;
+  final List<int> _quickAmounts = const [2000, 5000, 10000, 20000, 50000];
 
   @override
   void initState() {
@@ -33,90 +36,112 @@ class _WalletScreenState extends State<WalletScreen> {
         title: const Text('ZenjiGO Wallet'),
         actions: [
           IconButton(
-            onPressed: () => setState(() => hide = !hide),
-            icon: Icon(hide ? Icons.visibility_off : Icons.visibility),
+            tooltip: _hideBalance ? 'Show balance' : 'Hide balance',
+            onPressed: () => setState(() => _hideBalance = !_hideBalance),
+            icon: Icon(_hideBalance ? Icons.visibility_off : Icons.visibility),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(28),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: dark
-                      ? [AppColors.darkCard, AppColors.aquaGreen.withValues(alpha: .3)]
-                      : [AppColors.deepNavy, AppColors.oceanTeal],
-                ),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Column(
-                children: [
-                  const Text('Available Balance', style: TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 8),
-                  Text(
-                    hide ? '••••••' : 'TZS ${app.walletBalance.toStringAsFixed(0)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 22),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletSetupScreen())),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Top Up'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionHistoryScreen())),
-                          icon: const Icon(Icons.history, color: Colors.white),
-                          label: const Text('History', style: TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            GestureDetector(
-              onVerticalDragUpdate: (details) {
-                setState(() => amount = (amount - details.delta.dy * 100).clamp(500, 100000));
-              },
-              child: Container(
+      body: RefreshIndicator(
+        onRefresh: () => context.read<AppProvider>().refreshWallet(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(28),
                 decoration: BoxDecoration(
-                  color: dark ? AppColors.darkCard : AppColors.lightCard,
-                  borderRadius: BorderRadius.circular(18),
+                  gradient: LinearGradient(
+                    colors: dark
+                        ? [AppColors.darkCard, AppColors.aquaGreen.withValues(alpha: .3)]
+                        : [AppColors.deepNavy, AppColors.oceanTeal],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
                 ),
                 child: Column(
                   children: [
-                    const Text('Quick Top Up · swipe up/down', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
-                    Text('TZS ${amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 25, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 10),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => WalletSetupScreen(initialAmount: amount)));
-                      },
-                      child: const Text('Top Up Now'),
+                    const Text('Available Balance', style: TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 8),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: Text(
+                        _hideBalance ? '••••••' : formatTzs(app.walletBalance),
+                        key: ValueKey(_hideBalance),
+                        style: const TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const WalletSetupScreen()),
+                            ),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Top Up'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const TransactionHistoryScreen()),
+                            ),
+                            icon: const Icon(Icons.history, color: Colors.white),
+                            label: const Text('History', style: TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            _tile(context, Icons.payment, 'Payment Methods', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentMethodsScreen())), dark),
-            _tile(context, Icons.receipt_long, 'Transaction History', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionHistoryScreen())), dark),
-            _tile(context, Icons.card_giftcard, 'Refer & Earn', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReferralScreen())), dark),
-          ],
+              const SizedBox(height: 24),
+              Text(
+                'Quick Top Up',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  color: dark ? Colors.white : AppColors.deepNavy,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _quickAmounts.map((amt) {
+                  return ActionChip(
+                    label: Text(formatTzs(amt)),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => WalletSetupScreen(initialAmount: amt.toDouble()),
+                        ),
+                      );
+                    },
+                    backgroundColor: dark ? AppColors.darkCard : AppColors.lightCard,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 28),
+              _tile(context, Icons.payment, 'Payment Methods', () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentMethodsScreen()));
+              }, dark),
+              _tile(context, Icons.receipt_long, 'Transaction History', () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const TransactionHistoryScreen()));
+              }, dark),
+              _tile(context, Icons.card_giftcard, 'Refer & Earn', () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const ReferralScreen()));
+              }, dark),
+            ],
+          ),
         ),
       ),
     );

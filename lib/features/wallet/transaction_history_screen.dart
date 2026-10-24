@@ -1,3 +1,4 @@
+import '../../core/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/app_provider.dart';
@@ -40,7 +41,7 @@ class TransactionHistoryScreen extends StatelessWidget {
                     '${t.createdAt.toLocal().toString().split('.').first}${t.paymentMethod != null ? ' · ${t.paymentMethod}' : ''}',
                   ),
                   trailing: Text(
-                    '${credit ? '+' : ''}TZS ${t.amount.abs().toStringAsFixed(0)}',
+                    '${credit ? '+' : ''}${formatTzs(t.amount.abs())}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: credit ? AppColors.brightGreen : AppColors.error,

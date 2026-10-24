@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:pin_code_fields/pin_code_fields.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/loading_button.dart';
 import '../../core/constants/location_data.dart';
+import '../../core/widgets/places_autocomplete_field.dart';
 import '../../models/user_model.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/rider_api.dart';
@@ -38,6 +40,9 @@ class _SignupScreenState extends State<SignupScreen> {
 
   String? _island;
   String? _region;
+  double? _homeLat;
+  double? _homeLng;
+  String? _homeAddress;
   String? _district;
   String? _ward;
 
@@ -145,6 +150,8 @@ class _SignupScreenState extends State<SignupScreen> {
       final user = UserModel.fromJson(Map<String, dynamic>.from(rawUser));
       await context.read<AppProvider>().login(user);
       if (!mounted) return;
+      await _saveRegistrationAsHome();
+
       _countdownTimer?.cancel();
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -176,6 +183,8 @@ class _SignupScreenState extends State<SignupScreen> {
       final user = UserModel.fromJson(Map<String,dynamic>.from(r['data'] ?? {}));
       await context.read<AppProvider>().login(user);
       if (!mounted) return;
+      await _saveRegistrationAsHome();
+
       setState(() => _loading = false);
 
     } catch(e) {
@@ -193,6 +202,54 @@ class _SignupScreenState extends State<SignupScreen> {
           builder: (_) => PaymentMethodsScreen(onSkip: _goHome, onComplete: _goHome),
         ),
       );
+    }
+  }
+
+
+  /// Persist registration area as saved location "Home".
+  Future<void> _saveRegistrationAsHome() async {
+    try {
+      var addr = (_homeAddress ?? _regionCtrl.text.trim());
+      if (addr.isEmpty) {
+        addr = [_region, _district, _ward, _island]
+            .where((e) => e != null && e.toString().trim().isNotEmpty)
+            .map((e) => e.toString().trim())
+            .join(', ');
+      }
+      if (addr.isEmpty) return;
+
+      double? lat = _homeLat;
+      double? lng = _homeLng;
+      if (lat == null || lng == null) {
+        try {
+          final results = await locationFromAddress('$addr, Tanzania');
+          if (results.isNotEmpty) {
+            lat = results.first.latitude;
+            lng = results.first.longitude;
+          }
+        } catch (_) {}
+      }
+      if (lat == null || lng == null) return;
+
+      await context.read<AppProvider>().addSavedLocation(
+        SavedLocationModel(
+          id: '',
+          label: 'Home',
+          address: addr,
+          lat: lat,
+          lng: lng,
+          region: _regionCtrl.text.trim().isNotEmpty
+              ? _regionCtrl.text.trim()
+              : (_region ?? ''),
+          island: _islandCtrl.text.trim().isNotEmpty
+              ? _islandCtrl.text.trim()
+              : (_island ?? ''),
+          district: _district ?? '',
+          ward: _ward ?? '',
+        ),
+      );
+    } catch (_) {
+      // Non-fatal: account is still created
     }
   }
 
@@ -457,14 +514,26 @@ class _SignupScreenState extends State<SignupScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: _regionCtrl,
-            enabled: !_otpSent,
-            textCapitalization: TextCapitalization.words,
-            decoration: InputDecoration(
-              labelText: app.t('Region / Area', 'Mkoa / Eneo'),
-              hintText: app.t('Enter your region or area', 'Ingiza mkoa au eneo lako'),
-              prefixIcon: const Icon(Icons.location_on_outlined),
+          Text(app.t('Region / Area', 'Mkoa / Eneo'), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          const SizedBox(height: 8),
+          AbsorbPointer(
+            absorbing: _otpSent,
+            child: Opacity(
+              opacity: _otpSent ? 0.6 : 1,
+              child: PlacesAutocompleteField(
+                controller: _regionCtrl,
+                hint: app.t('Search area in Tanzania…', 'Tafuta eneo Tanzania…'),
+                icon: Icons.location_on_outlined,
+                onSelected: (sel) {
+                  setState(() {
+                    _region = sel.displayName;
+                    _regionCtrl.text = sel.displayName;
+                    _homeLat = sel.lat;
+                    _homeLng = sel.lng;
+                    _homeAddress = sel.displayName;
+                  });
+                },
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -529,7 +598,15 @@ class _SignupScreenState extends State<SignupScreen> {
           _locationField(app.t('Region', 'Mkoa'), _region, _island == null ? null : () => _showSearchablePicker(
             title: app.t('Select Region', 'Chagua Mkoa'),
             items: LocationData.regions[_island!] ?? [],
-            onSelect: (v) => setState(() { _region = v; _district = null; _ward = null; }),
+            onSelect: (v) => setState(() {
+              _region = v;
+              _regionCtrl.text = v;
+              _homeAddress = v;
+              _homeLat = null; // resolve via geocode on save
+              _homeLng = null;
+              _district = null;
+              _ward = null;
+            }),
           ), isDark),
           const SizedBox(height: 14),
           _locationField(app.t('District', 'Wilaya'), _district, _region == null ? null : () => _showSearchablePicker(

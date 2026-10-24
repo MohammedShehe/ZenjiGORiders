@@ -148,7 +148,7 @@ class ProfileScreen extends StatelessWidget {
                     },
                   ),
                   const SizedBox(height: 24),
-                  Text('ZenjiGO v1.0.0', style: TextStyle(color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary, fontSize: 12)),
+                  Text('ZenjiGO v${AppConstants.appVersion}', style: TextStyle(color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary, fontSize: 12)),
                   const SizedBox(height: 40),
                 ],
               ),

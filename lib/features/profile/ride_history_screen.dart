@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/app_provider.dart';
+import '../../core/utils/money.dart';
+import '../../core/utils/tanzania_time.dart';
 import '../ride/ride_history_details_screen.dart';
 
 class RideHistoryScreen extends StatefulWidget {
@@ -54,7 +56,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 5),
                       child: Text(
-                        '${ride.status.toUpperCase()} · TZS ${(ride.finalFare ?? ride.estimatedFare).toStringAsFixed(0)}\n${ride.createdAt.toLocal().toString().split('.').first}',
+                        '${ride.status.toUpperCase()} · ${formatTzs(ride.finalFare ?? ride.estimatedFare)}\n${TanzaniaTime.format(ride.createdAt)}',
                       ),
                     ),
                     isThreeLine: true,

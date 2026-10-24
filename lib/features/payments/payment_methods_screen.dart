@@ -29,8 +29,17 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
   }
 
   Future<void> _add() async {
-    final method = await Navigator.push<PaymentMethodModel>(context, MaterialPageRoute(builder: (_) => const AddPaymentMethodScreen()));
-    if (method != null && mounted) setState(() {});
+    final method = await Navigator.push<PaymentMethodModel>(
+      context,
+      MaterialPageRoute(builder: (_) => const AddPaymentMethodScreen()),
+    );
+    if (!mounted) return;
+    if (method != null) {
+      setState(() {});
+      if (widget.onComplete != null) {
+        widget.onComplete!();
+      }
+    }
   }
 
   Future<void> _remove(PaymentMethodModel method) async {
@@ -107,11 +116,25 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
           const SizedBox(height: 12),
           LoadingButton(text: app.t('Add payment method', 'Ongeza njia ya malipo'), icon: Icons.add_rounded, isLoading: _busy, onPressed: _add),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletSetupScreen())),
-            icon: const Icon(Icons.account_balance_wallet_rounded),
-            label: Text(app.t('Top up ZenjiGO Wallet', 'Ongeza salio la ZenjiGO Wallet')),
-          ),
+          if (widget.onSkip == null)
+            OutlinedButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletSetupScreen())),
+              icon: const Icon(Icons.account_balance_wallet_rounded),
+              label: Text(app.t('Top up ZenjiGO Wallet', 'Ongeza salio la ZenjiGO Wallet')),
+            ),
+          if (widget.onSkip != null || widget.onComplete != null) ...[
+            const SizedBox(height: 8),
+            if (methods.isNotEmpty && widget.onComplete != null)
+              ElevatedButton(
+                onPressed: widget.onComplete,
+                child: Text(app.t('Continue to Home', 'Endelea kwenye mwanzo')),
+              ),
+            if (widget.onSkip != null)
+              TextButton(
+                onPressed: widget.onSkip,
+                child: Text(app.t('Skip for now', 'Ruka kwa sasa')),
+              ),
+          ],
         ],
       ),
     );

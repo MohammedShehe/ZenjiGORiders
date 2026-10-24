@@ -9,6 +9,9 @@ import 'package:geocoding/geocoding.dart';
 import 'package:flutter_google_places_sdk/flutter_google_places_sdk.dart' as places;
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/utils/money.dart';
+import '../../core/utils/directions_service.dart';
+import '../../core/widgets/places_autocomplete_field.dart';
 import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
 import '../../models/user_model.dart';
@@ -43,6 +46,9 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _placesLoading = false;
   int _placesRequest = 0;
   List<Map<String, dynamic>> _placeSuggestions = [];
+  bool _searchingPickup = false;
+  Map<String, double?> _fares = {}; // rideType -> price after both locations set
+  List<gmaps.LatLng> _routePoints = [];
   // Uses the same Android-restricted key already configured in AndroidManifest.xml.
   // Override at build time for a separate platform-specific key: --dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY
   // In Google Cloud Console, enable Places API (New) and restrict this key to this app.
@@ -68,6 +74,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       final app = context.read<AppProvider>();
       if (app.currentAddress.isNotEmpty) _fromCtrl.text = app.currentAddress;
+      final def = app.defaultPaymentMethod;
+      if (def != null) {
+        setState(() => _paymentMethod = def.type == 'card' ? 'bank' : def.type);
+      }
+      app.refreshAccountCollections();
       _loadCurrentLocation();
     });
   }
@@ -110,6 +121,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ));
       await _refreshNearbyDrivers();
       _nearbyTimer ??= Timer.periodic(const Duration(seconds: 15), (_) => _refreshNearbyDrivers());
+      // If destination was chosen before GPS fixed, load quotes + road route now
+      if (_toLat != null && _toLng != null) {
+        await _loadAllQuotes();
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
     } finally { if (mounted) setState(() => _locationLoading = false); }
@@ -139,14 +154,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _searchPlaces(String query) async {
+  Future<void> _searchPlaces(String query, {bool forPickup = false}) async {
     final q = query.trim();
     final requestId = ++_placesRequest;
     setState(() {
-      _toLat = null;
-      _toLng = null;
+      _searchingPickup = forPickup;
+      if (!forPickup) {
+        _toLat = null;
+        _toLng = null;
+      }
       _estimatedFare = null;
       _eta = null;
+      _fares = {};
       _placesLoading = false;
       _placeSuggestions = [];
     });
@@ -184,9 +203,11 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted && requestId == _placesRequest) {
         setState(() => _placeSuggestions = []);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Google Places search unavailable: ${e.toString().replaceFirst('Exception: ', '')}'),
-        ));
+        final raw = e.toString().replaceFirst('Exception: ', '');
+        final clean = (raw.contains('permission') || raw.contains('403') || raw.contains('Autocomplet'))
+            ? 'Places search unavailable. Enable Places API (New) for this API key in Google Cloud Console.'
+            : (raw.length > 120 ? '${raw.substring(0, 120)}…' : raw);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(clean)));
       }
     } finally {
       if (mounted && requestId == _placesRequest) setState(() => _placesLoading = false);
@@ -213,14 +234,46 @@ class _HomeScreenState extends State<HomeScreen> {
       final lat = location.lat;
       final lng = location.lng;
       if (!mounted) return;
+      // Prefer human-readable suggestion name (e.g. "Fuoni Kibondeni"), not Plus Codes
+      final main = (place['structured_formatting'] is Map
+              ? (place['structured_formatting']['main_text'] ?? '')
+              : '')
+          .toString();
+      final secondary = (place['structured_formatting'] is Map
+              ? (place['structured_formatting']['secondary_text'] ?? '')
+              : '')
+          .toString();
+      final suggestedAddress = [main, secondary]
+          .where((part) => part.trim().isNotEmpty)
+          .join(', ');
+      final address = suggestedAddress.isNotEmpty
+          ? suggestedAddress
+          : (place['description']?.toString() ?? result.address ?? '');
+      final app = context.read<AppProvider>();
       setState(() {
-        _toCtrl.text = (result.address ?? place['description'] ?? '').toString();
-        _toLat = lat;
-        _toLng = lng;
+        if (_searchingPickup) {
+          _fromCtrl.text = address;
+          app.setCurrentLocation(lat: lat, lng: lng, address: address);
+        } else {
+          _toCtrl.text = address;
+          _toLat = lat;
+          _toLng = lng;
+        }
+        _placeSuggestions = [];
         _estimatedFare = null;
         _eta = null;
+        _fares = {};
+        _routePoints = [];
       });
       FocusScope.of(context).unfocus();
+      // Quotes + route whenever BOTH pickup and destination are known (any order)
+      final hasPickup = context.read<AppProvider>().currentLat != 0;
+      final hasDest = _toLat != null && _toLng != null;
+      if (hasPickup && hasDest) {
+        await _loadAllQuotes(); // also refreshes road route
+      } else {
+        await _updateRoadRoute();
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
     } finally {
@@ -228,12 +281,105 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _loadAllQuotes() async {
+    final app = context.read<AppProvider>();
+    if (_toLat == null || _toLng == null || app.currentLat == 0) return;
+    final fares = <String, double?>{};
+    for (final r in AppConstants.rideTypes) {
+      final id = (r['id'] ?? '').toString();
+      try {
+        final q = await RiderApi.quote(
+          rideType: id,
+          pickupLat: app.currentLat,
+          pickupLng: app.currentLng,
+          destinationLat: _toLat!,
+          destinationLng: _toLng!,
+        );
+        fares[id] = double.tryParse((q['fare'] ?? q['estimatedFare'] ?? q['price'] ?? q['total'] ?? '').toString());
+        final dur = int.tryParse((q['durationMin'] ?? q['estimatedDurationMin'] ?? q['eta'] ?? '').toString());
+        if (dur != null && (_eta == null || id == _selectedRideType)) {
+          _eta = dur;
+        }
+      } catch (_) {
+        fares[id] = null;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _fares = fares;
+      if (_selectedRideType != null && fares[_selectedRideType] != null) {
+        _estimatedFare = fares[_selectedRideType];
+      }
+    });
+    await _updateRoadRoute();
+  }
+
+  Future<void> _updateRoadRoute() async {
+    final app = context.read<AppProvider>();
+    if (app.currentLat == 0 || app.currentLng == 0 || _toLat == null || _toLng == null) {
+      if (mounted) setState(() => _routePoints = []);
+      return;
+    }
+    try {
+      final points = await DirectionsService.route(
+        originLat: app.currentLat,
+        originLng: app.currentLng,
+        destLat: _toLat!,
+        destLng: _toLng!,
+        apiKey: _placesApiKey,
+      );
+      if (!mounted) return;
+      setState(() => _routePoints = points);
+      await _fitRouteOnMap();
+    } catch (_) {
+      if (!mounted) return;
+      // Still show a visible line so the user sees the trip corridor
+      setState(() {
+        _routePoints = [
+          gmaps.LatLng(app.currentLat, app.currentLng),
+          gmaps.LatLng(_toLat!, _toLng!),
+        ];
+      });
+      await _fitRouteOnMap();
+    }
+  }
+
+  Future<void> _fitRouteOnMap() async {
+    final app = context.read<AppProvider>();
+    if (_googleMapController == null) return;
+    if (app.currentLat == 0 || _toLat == null || _toLng == null) return;
+    final swLat = app.currentLat < _toLat! ? app.currentLat : _toLat!;
+    final swLng = app.currentLng < _toLng! ? app.currentLng : _toLng!;
+    final neLat = app.currentLat > _toLat! ? app.currentLat : _toLat!;
+    final neLng = app.currentLng > _toLng! ? app.currentLng : _toLng!;
+    final bounds = gmaps.LatLngBounds(
+      southwest: gmaps.LatLng(swLat, swLng),
+      northeast: gmaps.LatLng(neLat, neLng),
+    );
+    try {
+      await _googleMapController!.animateCamera(
+        gmaps.CameraUpdate.newLatLngBounds(bounds, 72),
+      );
+    } catch (_) {
+      await _googleMapController!.animateCamera(
+        gmaps.CameraUpdate.newLatLngZoom(
+          gmaps.LatLng((app.currentLat + _toLat!) / 2, (app.currentLng + _toLng!) / 2),
+          13,
+        ),
+      );
+    }
+  }
+
   void _selectRide(String rideType) {
     setState(() {
       _selectedRideType = rideType;
-      _estimatedFare = null;
-      _eta = null;
+      _estimatedFare = _fares[rideType];
+      // keep eta if we already have one from quotes
     });
+    // Retry quote for this type if missing
+    if (_fares[rideType] == null && _toLat != null) {
+      _loadAllQuotes();
+    }
   }
 
   Future<void> _requestRide() async {
@@ -289,6 +435,40 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() => _searching = false);
 
+    final fareLabel = formatTzs(_estimatedFare);
+    final etaLabel = _eta != null ? '$_eta min' : '—';
+    final rideName = AppConstants.rideTypes
+        .firstWhere((r) => r['id'] == _selectedRideType, orElse: () => {'name': _selectedRideType})['name']
+        .toString();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Confirm ride quote'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('From: ${_fromCtrl.text}', style: const TextStyle(fontSize: 13)),
+            const SizedBox(height: 4),
+            Text('To: ${_toCtrl.text}', style: const TextStyle(fontSize: 13)),
+            const SizedBox(height: 12),
+            Text('$rideName', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            const SizedBox(height: 6),
+            Text('Fare: $fareLabel', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Est. time: $etaLabel'),
+            const SizedBox(height: 6),
+            Text('Payment: $_paymentMethod'),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Request ride')),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => RideDetailsScreen(
@@ -337,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ListTile(
                   leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_rounded)),
                   title: Text(app.t('ZenjiGO Wallet', 'Pochi ya ZenjiGO')),
-                  subtitle: Text('TZS ${app.walletBalance.toStringAsFixed(0)} available'),
+                  subtitle: Text('${formatTzs(app.walletBalance)} available'),
                   trailing: _paymentMethod == 'wallet' ? Icon(Icons.check_circle, color: accent) : null,
                   onTap: () => Navigator.pop(ctx, 'wallet'),
                 ),
@@ -439,7 +619,22 @@ class _HomeScreenState extends State<HomeScreen> {
             myLocationEnabled: app.currentLat != 0 && app.currentLng != 0,
             myLocationButtonEnabled: true,
             zoomControlsEnabled: false,
-            compassEnabled: true,
+            mapToolbarEnabled: false,
+            compassEnabled: false,
+            buildingsEnabled: false,
+            trafficEnabled: false,
+            polylines: {
+              if (_routePoints.length >= 2)
+                gmaps.Polyline(
+                  polylineId: const gmaps.PolylineId('route'),
+                  points: _routePoints,
+                  color: AppColors.oceanTeal,
+                  width: 6,
+                  geodesic: false,
+                  visible: true,
+                  zIndex: 2,
+                ),
+            },
             markers: {
               if (app.currentLat != 0 && app.currentLng != 0)
                 gmaps.Marker(
@@ -481,10 +676,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     child: Column(
                       children: [
-                        _searchRow(Icons.my_location, app.t('From', 'Kutoka'), _fromCtrl, isDark, true),
+                        _searchRow(Icons.my_location, app.t('From', 'Kutoka'), _fromCtrl, isDark, false,
+                            onChanged: (v) => _searchPlaces(v, forPickup: true)),
                         Divider(height: 16, color: isDark ? AppColors.darkCard : Colors.grey.shade200),
                         _searchRow(Icons.location_on, app.t('Where to?', 'Unakwenda wapi?'), _toCtrl, isDark, false,
-                            onChanged: (v) => _searchPlaces(v)),
+                            onChanged: (v) => _searchPlaces(v, forPickup: false)),
                         if (_placesLoading) const Padding(
                           padding: EdgeInsets.only(top: 8),
                           child: LinearProgressIndicator(minHeight: 2),
@@ -492,7 +688,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         if (_placeSuggestions.isNotEmpty)
                           Container(
                             margin: const EdgeInsets.only(top: 6),
-                            constraints: const BoxConstraints(maxHeight: 190),
+                            constraints: BoxConstraints(
+                              maxHeight: MediaQuery.of(context).size.height < 700 ? 140 : 200,
+                            ),
                             decoration: BoxDecoration(
                               color: isDark ? AppColors.darkCard : Colors.white,
                               borderRadius: BorderRadius.circular(12),
@@ -500,20 +698,47 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             child: ListView.separated(
                               shrinkWrap: true,
+                              padding: EdgeInsets.zero,
                               itemCount: _placeSuggestions.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              separatorBuilder: (_, __) => Divider(height: 1, color: isDark ? AppColors.darkSurface : Colors.grey.shade200),
                               itemBuilder: (context, index) {
                                 final place = _placeSuggestions[index];
-                                return ListTile(
-                                  dense: true,
-                                  leading: const Icon(Icons.location_on_outlined),
-                                  title: Text((place['structured_formatting'] is Map
-                                      ? (place['structured_formatting']['main_text'] ?? place['description'])
-                                      : place['description']).toString()),
-                                  subtitle: Text((place['structured_formatting'] is Map
-                                      ? (place['structured_formatting']['secondary_text'] ?? '')
-                                      : '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                  onTap: () => _selectPlace(place),
+                                final mainText = (place['structured_formatting'] is Map
+                                        ? (place['structured_formatting']['main_text'] ?? place['description'])
+                                        : place['description']).toString();
+                                final secondary = (place['structured_formatting'] is Map
+                                        ? (place['structured_formatting']['secondary_text'] ?? '')
+                                        : '').toString();
+                                return Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () => _selectPlace(place),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(Icons.location_on_outlined, size: 20,
+                                              color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(mainText, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                                                        color: isDark ? Colors.white : Colors.black87)),
+                                                if (secondary.isNotEmpty)
+                                                  Text(secondary, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                                      style: TextStyle(fontSize: 12,
+                                                          color: isDark ? Colors.white70 : Colors.black54)),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 );
                               },
                             ),
@@ -575,7 +800,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
-                              'TZS ${_estimatedFare!.toStringAsFixed(0)} · ${_eta} min',
+                              '${formatTzs(_estimatedFare)} · ${_eta ?? '—'} min',
                               style: TextStyle(
                                 fontWeight: FontWeight.w600,
                                 fontSize: 13,
@@ -626,9 +851,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                                       ),
                                       Text(
-                                        'Get live quote',
+                                        _fares.containsKey(r['id'])
+                                            ? (_fares[r['id']] != null
+                                                ? '${formatTzs(_fares[r['id']])}'
+                                                : 'Tap to retry quote')
+                                            : (_toLat != null && context.read<AppProvider>().currentLat != 0
+                                                ? 'Getting quote…'
+                                                : 'Select pickup & destination'),
                                         style: TextStyle(
                                           fontSize: 12,
+                                          fontWeight: _fares[r['id']] != null ? FontWeight.w600 : FontWeight.normal,
                                           color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
                                         ),
                                       ),
@@ -673,7 +905,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Icon(Icons.local_offer, size: 16, color: AppColors.brightGreen),
                           const SizedBox(width: 6),
-                          Expanded(child: Text(app.t('Promo ${app.pendingPromoCode} (-${app.pendingDiscount.toStringAsFixed(0)})', 'Promo ${app.pendingPromoCode} (-${app.pendingDiscount.toStringAsFixed(0)})'), style: const TextStyle(fontSize: 12, color: AppColors.brightGreen))),
+                          Expanded(child: Text(app.t('Promo ${app.pendingPromoCode} (-${formatTzs(app.pendingDiscount, withCurrency: false)})', 'Promo ${app.pendingPromoCode} (-${formatTzs(app.pendingDiscount, withCurrency: false)})'), style: const TextStyle(fontSize: 12, color: AppColors.brightGreen))),
                           TextButton(onPressed: () { app.clearPromo(); setState(() {}); }, child: Text(app.t('Clear', 'Futa'), style: const TextStyle(fontSize: 12))),
                         ],
                       ),

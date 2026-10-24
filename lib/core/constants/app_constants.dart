@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 class AppConstants {
   static const String appName = 'ZenjiGO';
+  static const String appVersion = '1.0.0';
   static const String orgPhone = '+255 676 891 227';
-  static const String orgEmail = 'zenjigo@support.com';
+  static const String orgEmail = 'support@zenjigo.online';
   static const String orgInstagram = 'zenjigo';
   static const String privacyUrl = 'https://zenjigo.com/privacy';
   static const String termsUrl = 'https://zenjigo.com/terms';

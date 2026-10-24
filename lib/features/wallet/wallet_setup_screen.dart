@@ -1,3 +1,4 @@
+import '../../core/utils/money.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
@@ -56,9 +57,9 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(20)),
               child: Column(children: [
-                Text('TZS ${_amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
+                Text('${formatTzs(_amount)}', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
                 Slider(min: 500, max: 100000, divisions: 199, value: _amount, activeColor: accent, onChanged: (v) => setState(() => _amount = v.roundToDouble())),
-                Wrap(spacing: 8, runSpacing: 8, children: [1000, 5000, 10000, 20000, 50000].map((v) => ChoiceChip(label: Text('TZS $v'), selected: _amount == v.toDouble(), onSelected: (_) => setState(() => _amount = v.toDouble()))).toList()),
+                Wrap(spacing: 8, runSpacing: 8, children: [1000, 5000, 10000, 20000, 50000].map((v) => ChoiceChip(label: Text(formatTzs(v)), selected: _amount == v.toDouble(), onSelected: (_) => setState(() => _amount = v.toDouble()))).toList()),
               ]),
             ),
             const SizedBox(height: 22),
@@ -102,7 +103,7 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(app.t('Current wallet balance', 'Salio la pochi sasa'), style: const TextStyle(color: Colors.white70)),
         const SizedBox(height: 4),
-        Text('TZS ${app.walletBalance.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.w800)),
+        Text('${formatTzs(app.walletBalance)}', style: const TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.w800)),
       ])),
     ]),
   );
@@ -136,9 +137,9 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16)),
     child: Column(children: [
-      _row(app.t('Top-up amount', 'Kiasi'), 'TZS ${_amount.toStringAsFixed(0)}'),
+      _row(app.t('Top-up amount', 'Kiasi'), '${formatTzs(_amount)}'),
       const Divider(height: 20),
-      _row(app.t('New balance', 'Salio jipya'), 'TZS ${(app.walletBalance + _amount).toStringAsFixed(0)}', bold: true),
+      _row(app.t('New balance', 'Salio jipya'), '${formatTzs((app.walletBalance + _amount))}', bold: true),
       const SizedBox(height: 6),
       Align(alignment: Alignment.centerLeft, child: Text(app.t('Payment: ${method.provider ?? 'Bank Card'}', 'Malipo: ${method.provider ?? 'Kadi ya benki'}'), style: TextStyle(fontSize: 12, color: app.isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary))),
     ]),
