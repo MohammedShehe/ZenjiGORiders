@@ -2,16 +2,18 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
-import 'package:latlong2/latlong.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter_google_places_sdk/flutter_google_places_sdk.dart' as places;
+import '../../core/map/map_markers.dart';
+import '../../core/map/map_style.dart';
+import '../../core/map/map_widgets.dart';
+import '../../core/map/route_utils.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/directions_service.dart';
-import '../../core/widgets/places_autocomplete_field.dart';
 import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
 import '../../models/user_model.dart';
@@ -28,7 +30,15 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+/// A nearby driver shown on the map.
+class _NearbyDriver {
+  final String id;
+  final gmaps.LatLng position;
+  final String type;
+  const _NearbyDriver(this.id, this.position, this.type);
+}
+
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _fromCtrl = TextEditingController();
   final _toCtrl = TextEditingController();
   String? _selectedRideType;
@@ -39,7 +49,9 @@ class _HomeScreenState extends State<HomeScreen> {
   double? _toLat;
   double? _toLng;
 
-  final List<LatLng> _nearbyDrivers = [];
+  final List<_NearbyDriver> _nearbyDrivers = [];
+  final _fromFocus = FocusNode();
+  final _toFocus = FocusNode();
   gmaps.GoogleMapController? _googleMapController;
   Timer? _nearbyTimer;
   bool _locationLoading = false;
@@ -48,28 +60,61 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _placeSuggestions = [];
   bool _searchingPickup = false;
   Map<String, double?> _fares = {}; // rideType -> price after both locations set
-  List<gmaps.LatLng> _routePoints = [];
-  // Uses the same Android-restricted key already configured in AndroidManifest.xml.
-  // Override at build time for a separate platform-specific key: --dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY
-  // In Google Cloud Console, enable Places API (New) and restrict this key to this app.
-  static const String _placesApiKey = String.fromEnvironment(
-    'GOOGLE_MAPS_API_KEY',
-    defaultValue: 'AIzaSyBX93zeEULXrhxlvkNefmoFcYDGizvvSpU',
-  );
+  List<gmaps.LatLng> _routePoints = []; // what is drawn (grows during the reveal animation)
+  RouteResult? _route; // full road route + distance / duration
+  final RouteReveal _reveal = RouteReveal();
+  int _routeSeq = 0;
+  MapMarkerSet? _markerSet;
+  double _topH = 0;
+  double _sheetH = 0;
+  // Override at build time with: --dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY
+  static const String _placesApiKey = DirectionsService.defaultKey;
   late final places.FlutterGooglePlacesSdk _placesClient =
       places.FlutterGooglePlacesSdk(_placesApiKey, useNewApi: true);
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _nearbyTimer?.cancel();
+    _reveal.cancel();
     _fromCtrl.dispose();
     _toCtrl.dispose();
+    _fromFocus.dispose();
+    _toFocus.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // No point polling drivers while the app is in the background.
+    if (state == AppLifecycleState.resumed) {
+      if (_nearbyTimer == null && context.read<AppProvider>().currentLat != 0) {
+        _refreshNearbyDrivers();
+        _nearbyTimer = Timer.periodic(const Duration(seconds: 15), (_) => _refreshNearbyDrivers());
+      }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _nearbyTimer?.cancel();
+      _nearbyTimer = null;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_markerSet == null) {
+      final ratio = View.of(context).devicePixelRatio;
+      MapMarkers.load(ratio).then((set) {
+        if (mounted) setState(() => _markerSet = set);
+      });
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _fromFocus.addListener(_onFocusChanged);
+    _toFocus.addListener(_onFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final app = context.read<AppProvider>();
@@ -136,13 +181,19 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final drivers = await RiderApi.nearbyDrivers(app.currentLat, app.currentLng);
       if (!mounted) return;
-      final points = <LatLng>[];
+      final points = <_NearbyDriver>[];
+      var n = 0;
       for (final item in drivers) {
         if (item is! Map) continue;
         final data = Map<String, dynamic>.from(item);
         final lat = double.tryParse((data['lat'] ?? data['latitude'] ?? '').toString());
         final lng = double.tryParse((data['lng'] ?? data['longitude'] ?? '').toString());
-        if (lat != null && lng != null && lat != 0 && lng != 0) points.add(LatLng(lat, lng));
+        if (lat != null && lng != null && lat != 0 && lng != 0) {
+          final type = (data['vehicleType'] ?? data['rideType'] ?? data['type'] ?? 'taxi').toString().toLowerCase();
+          final id = (data['id'] ?? data['_id'] ?? data['driverId'] ?? 'n$n').toString();
+          points.add(_NearbyDriver(id, gmaps.LatLng(lat, lng), type));
+          n++;
+        }
       }
       setState(() {
         _nearbyDrivers
@@ -163,6 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _toLat = null;
         _toLng = null;
       }
+      _clearRouteState();
       _estimatedFare = null;
       _eta = null;
       _fares = {};
@@ -263,7 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _estimatedFare = null;
         _eta = null;
         _fares = {};
-        _routePoints = [];
+        _clearRouteState();
       });
       FocusScope.of(context).unfocus();
       // Quotes + route whenever BOTH pickup and destination are known (any order)
@@ -281,93 +333,145 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _clearRouteState() {
+    _routeSeq++;
+    _reveal.cancel();
+    _routePoints = [];
+    _route = null;
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _loadAllQuotes() async {
     final app = context.read<AppProvider>();
     if (_toLat == null || _toLng == null || app.currentLat == 0) return;
-    final fares = <String, double?>{};
-    for (final r in AppConstants.rideTypes) {
+    // Road route and the three fare quotes are independent: run them together.
+    final routeFuture = _updateRoadRoute();
+    final pickupLat = app.currentLat, pickupLng = app.currentLng;
+    final destLat = _toLat!, destLng = _toLng!;
+    final selected = _selectedRideType;
+
+    final results = await Future.wait(AppConstants.rideTypes.map((r) async {
       final id = (r['id'] ?? '').toString();
       try {
         final q = await RiderApi.quote(
           rideType: id,
-          pickupLat: app.currentLat,
-          pickupLng: app.currentLng,
-          destinationLat: _toLat!,
-          destinationLng: _toLng!,
+          pickupLat: pickupLat,
+          pickupLng: pickupLng,
+          destinationLat: destLat,
+          destinationLng: destLng,
         );
-        fares[id] = double.tryParse((q['fare'] ?? q['estimatedFare'] ?? q['price'] ?? q['total'] ?? '').toString());
+        final fare = double.tryParse((q['fare'] ?? q['estimatedFare'] ?? q['price'] ?? q['total'] ?? '').toString());
         final dur = int.tryParse((q['durationMin'] ?? q['estimatedDurationMin'] ?? q['eta'] ?? '').toString());
-        if (dur != null && (_eta == null || id == _selectedRideType)) {
-          _eta = dur;
-        }
+        return MapEntry(id, (fare, dur));
       } catch (_) {
-        fares[id] = null;
+        return MapEntry<String, (double?, int?)>(id, (null, null));
       }
-    }
+    }));
     if (!mounted) return;
+    // Ignore the answer if the user changed the destination meanwhile.
+    if (_toLat != destLat || _toLng != destLng) return;
+
+    final fares = <String, double?>{};
+    int? eta = _eta;
+    for (final e in results) {
+      fares[e.key] = e.value.$1;
+      final dur = e.value.$2;
+      if (dur != null && (eta == null || e.key == selected)) eta = dur;
+    }
     setState(() {
       _fares = fares;
-      if (_selectedRideType != null && fares[_selectedRideType] != null) {
-        _estimatedFare = fares[_selectedRideType];
-      }
+      _eta = eta;
+      final sel = _selectedRideType;
+      if (sel != null && fares[sel] != null) _estimatedFare = fares[sel];
     });
-    await _updateRoadRoute();
+    await routeFuture;
   }
 
   Future<void> _updateRoadRoute() async {
     final app = context.read<AppProvider>();
     if (app.currentLat == 0 || app.currentLng == 0 || _toLat == null || _toLng == null) {
-      if (mounted) setState(() => _routePoints = []);
+      if (mounted) setState(_clearRouteState);
       return;
     }
-    try {
-      final points = await DirectionsService.route(
-        originLat: app.currentLat,
-        originLng: app.currentLng,
-        destLat: _toLat!,
-        destLng: _toLng!,
-        apiKey: _placesApiKey,
-      );
-      if (!mounted) return;
-      setState(() => _routePoints = points);
-      await _fitRouteOnMap();
-    } catch (_) {
-      if (!mounted) return;
-      // Still show a visible line so the user sees the trip corridor
-      setState(() {
-        _routePoints = [
-          gmaps.LatLng(app.currentLat, app.currentLng),
-          gmaps.LatLng(_toLat!, _toLng!),
-        ];
+    final seq = ++_routeSeq;
+    final result = await DirectionsService.fetch(
+      originLat: app.currentLat,
+      originLng: app.currentLng,
+      destLat: _toLat!,
+      destLng: _toLng!,
+      apiKey: _placesApiKey,
+    );
+    // A newer request (or a cleared destination) supersedes this one.
+    if (!mounted || seq != _routeSeq) return;
+    setState(() {
+      _route = result;
+      _eta ??= result.durationMinutes;
+    });
+    _fitRouteOnMap();
+    if (result.followsRoads) {
+      // Draw the road route in (cheap: ~14 discrete frames).
+      _reveal.start(result.points, (visible) {
+        if (!mounted || seq != _routeSeq) return;
+        setState(() => _routePoints = visible);
       });
-      await _fitRouteOnMap();
+    } else {
+      setState(() => _routePoints = result.points);
     }
   }
 
   Future<void> _fitRouteOnMap() async {
+    final ctrl = _googleMapController;
+    if (ctrl == null) return;
     final app = context.read<AppProvider>();
-    if (_googleMapController == null) return;
-    if (app.currentLat == 0 || _toLat == null || _toLng == null) return;
-    final swLat = app.currentLat < _toLat! ? app.currentLat : _toLat!;
-    final swLng = app.currentLng < _toLng! ? app.currentLng : _toLng!;
-    final neLat = app.currentLat > _toLat! ? app.currentLat : _toLat!;
-    final neLng = app.currentLng > _toLng! ? app.currentLng : _toLng!;
-    final bounds = gmaps.LatLngBounds(
-      southwest: gmaps.LatLng(swLat, swLng),
-      northeast: gmaps.LatLng(neLat, neLng),
-    );
+    final pts = <gmaps.LatLng>[
+      ...?_route?.points,
+      if (app.currentLat != 0) gmaps.LatLng(app.currentLat, app.currentLng),
+      if (_toLat != null && _toLng != null) gmaps.LatLng(_toLat!, _toLng!),
+    ];
+    final bounds = GeoUtils.boundsOf(pts);
+    if (bounds == null) return;
     try {
-      await _googleMapController!.animateCamera(
-        gmaps.CameraUpdate.newLatLngBounds(bounds, 72),
-      );
+      await ctrl.animateCamera(gmaps.CameraUpdate.newLatLngBounds(bounds, 56));
     } catch (_) {
-      await _googleMapController!.animateCamera(
-        gmaps.CameraUpdate.newLatLngZoom(
-          gmaps.LatLng((app.currentLat + _toLat!) / 2, (app.currentLng + _toLng!) / 2),
+      // Map not laid out yet (can happen right after navigation): centre instead.
+      try {
+        await ctrl.animateCamera(gmaps.CameraUpdate.newLatLngZoom(
+          gmaps.LatLng((bounds.southwest.latitude + bounds.northeast.latitude) / 2,
+              (bounds.southwest.longitude + bounds.northeast.longitude) / 2),
           13,
-        ),
-      );
+        ));
+      } catch (_) {}
     }
+  }
+
+  Future<void> _recenterOnMe() async {
+    final app = context.read<AppProvider>();
+    if (app.currentLat == 0 || app.currentLng == 0) {
+      await _loadCurrentLocation();
+      return;
+    }
+    try {
+      await _googleMapController?.animateCamera(
+        gmaps.CameraUpdate.newLatLngZoom(gmaps.LatLng(app.currentLat, app.currentLng), 15.5),
+      );
+    } catch (_) {}
+  }
+
+  void _clearDestination() {
+    setState(() {
+      _toCtrl.clear();
+      _toLat = null;
+      _toLng = null;
+      _estimatedFare = null;
+      _eta = null;
+      _fares = {};
+      _placeSuggestions = [];
+      _clearRouteState();
+    });
+    _recenterOnMe();
   }
 
   void _selectRide(String rideType) {
@@ -579,14 +683,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
         _toCtrl.text = picked.address;
         _toLat = picked.lat;
         _toLng = picked.lng;
         _estimatedFare = null;
         _eta = null;
+        _fares = {};
+        _placeSuggestions = [];
+        _clearRouteState();
       });
+      if (context.read<AppProvider>().currentLat != 0) await _loadAllQuotes();
     }
   }
 
@@ -594,366 +702,568 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final app = context.watch<AppProvider>();
     final isDark = app.isDark;
-    final size = MediaQuery.of(context).size;
+    final mq = MediaQuery.of(context);
+    final hasPickup = app.currentLat != 0 && app.currentLng != 0;
+    final searchActive = _fromFocus.hasFocus || _toFocus.hasFocus;
+    final route = _route;
+    final markers = _markerSet;
+    final accent = MapUi.accent(isDark);
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Google Maps SDK map, using the same Google Maps platform key as the web project.
-          gmaps.GoogleMap(
-            onMapCreated: (controller) {
-              _googleMapController = controller;
-              final app = context.read<AppProvider>();
-              if (app.currentLat != 0 && app.currentLng != 0) {
-                controller.animateCamera(gmaps.CameraUpdate.newLatLng(
-                  gmaps.LatLng(app.currentLat, app.currentLng),
-                ));
-              }
-            },
-            initialCameraPosition: gmaps.CameraPosition(
-              target: app.currentLat != 0 && app.currentLng != 0
-                  ? gmaps.LatLng(app.currentLat, app.currentLng)
-                  : const gmaps.LatLng(-6.1659, 39.2026),
-              zoom: 14,
-            ),
-            myLocationEnabled: app.currentLat != 0 && app.currentLng != 0,
-            myLocationButtonEnabled: true,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            compassEnabled: false,
-            buildingsEnabled: false,
-            trafficEnabled: false,
-            polylines: {
-              if (_routePoints.length >= 2)
-                gmaps.Polyline(
-                  polylineId: const gmaps.PolylineId('route'),
-                  points: _routePoints,
-                  color: AppColors.oceanTeal,
-                  width: 6,
-                  geodesic: false,
-                  visible: true,
-                  zIndex: 2,
-                ),
-            },
-            markers: {
-              if (app.currentLat != 0 && app.currentLng != 0)
-                gmaps.Marker(
-                  markerId: const gmaps.MarkerId('rider-pickup'),
-                  position: gmaps.LatLng(app.currentLat, app.currentLng),
-                  infoWindow: const gmaps.InfoWindow(title: 'Your pickup'),
-                ),
-              ..._nearbyDrivers.asMap().entries.map((entry) => gmaps.Marker(
-                    markerId: gmaps.MarkerId('driver-${entry.key}'),
-                    position: gmaps.LatLng(entry.value.latitude, entry.value.longitude),
-                    icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueGreen),
-                    infoWindow: const gmaps.InfoWindow(title: 'Nearby driver'),
-                  )),
-              if (_toLat != null && _toLng != null)
-                gmaps.Marker(
-                  markerId: const gmaps.MarkerId('destination'),
-                  position: gmaps.LatLng(_toLat!, _toLng!),
-                  icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueOrange),
-                  infoWindow: const gmaps.InfoWindow(title: 'Destination'),
-                ),
-            },
-          ),
+    return MediaQuery(
+      // Large system font sizes must not break the layout on small phones.
+      data: mq.copyWith(textScaler: mq.textScaler.clamp(minScaleFactor: 0.9, maxScaleFactor: 1.2)),
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        body: LayoutBuilder(builder: (context, box) {
+          final compact = box.maxHeight < 640 || box.maxWidth < 360;
+          final panelWidth = box.maxWidth > 600 ? 520.0 : box.maxWidth;
+          final sideGap = box.maxWidth > 600 ? 0.0 : (compact ? 10.0 : 14.0);
+          final safeTop = mq.padding.top;
+          final mapTopPad = safeTop + 8 + _topH;
 
-          // Top bar
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Column(
-                children: [
-                  // Search card
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkSurface.withOpacity(0.95) : AppColors.lightSurface.withOpacity(0.97),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 20, offset: const Offset(0, 4)),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        _searchRow(Icons.my_location, app.t('From', 'Kutoka'), _fromCtrl, isDark, false,
-                            onChanged: (v) => _searchPlaces(v, forPickup: true)),
-                        Divider(height: 16, color: isDark ? AppColors.darkCard : Colors.grey.shade200),
-                        _searchRow(Icons.location_on, app.t('Where to?', 'Unakwenda wapi?'), _toCtrl, isDark, false,
-                            onChanged: (v) => _searchPlaces(v, forPickup: false)),
-                        if (_placesLoading) const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: LinearProgressIndicator(minHeight: 2),
-                        ),
-                        if (_placeSuggestions.isNotEmpty)
-                          Container(
-                            margin: const EdgeInsets.only(top: 6),
-                            constraints: BoxConstraints(
-                              maxHeight: MediaQuery.of(context).size.height < 700 ? 140 : 200,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isDark ? AppColors.darkCard : Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: isDark ? AppColors.darkSurface : Colors.grey.shade200),
-                            ),
-                            child: ListView.separated(
-                              shrinkWrap: true,
-                              padding: EdgeInsets.zero,
-                              itemCount: _placeSuggestions.length,
-                              separatorBuilder: (_, __) => Divider(height: 1, color: isDark ? AppColors.darkSurface : Colors.grey.shade200),
-                              itemBuilder: (context, index) {
-                                final place = _placeSuggestions[index];
-                                final mainText = (place['structured_formatting'] is Map
-                                        ? (place['structured_formatting']['main_text'] ?? place['description'])
-                                        : place['description']).toString();
-                                final secondary = (place['structured_formatting'] is Map
-                                        ? (place['structured_formatting']['secondary_text'] ?? '')
-                                        : '').toString();
-                                return Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    onTap: () => _selectPlace(place),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                      child: Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Icon(Icons.location_on_outlined, size: 20,
-                                              color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(mainText, maxLines: 2, overflow: TextOverflow.ellipsis,
-                                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
-                                                        color: isDark ? Colors.white : Colors.black87)),
-                                                if (secondary.isNotEmpty)
-                                                  Text(secondary, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                                      style: TextStyle(fontSize: 12,
-                                                          color: isDark ? Colors.white70 : Colors.black54)),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                      ],
-                    ),
-                  ).animate().fadeIn().slideY(begin: -0.15, end: 0),
+          final polylines = <gmaps.Polyline>{
+            if (_routePoints.length >= 2 && route != null && route.followsRoads)
+              ...MapUi.routeLine(id: 'trip', points: _routePoints, isDark: isDark, width: 6),
+            if (_routePoints.length >= 2 && route != null && !route.followsRoads)
+              ...MapUi.secondaryLine(id: 'trip', points: _routePoints, isDark: isDark),
+          };
 
-                  // Quick extras
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 40,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        _chip(Icons.inventory_2_rounded, app.t('Parcel', 'Kifurushi'), () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const ParcelScreen()));
-                        }, isDark),
-                        _chip(Icons.beach_access_rounded, app.t('Tours', 'Ziara'), () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const TourPackagesScreen()));
-                        }, isDark),
-                        _chip(Icons.local_offer_rounded, app.t('Offers', 'Ofa'), () {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const PromotionsScreen()));
-                        }, isDark),
-                      ],
-                    ),
-                  ),
-                ],
+          final mapMarkers = <gmaps.Marker>{
+            if (hasPickup)
+              gmaps.Marker(
+                markerId: const gmaps.MarkerId('rider-pickup'),
+                position: gmaps.LatLng(app.currentLat, app.currentLng),
+                icon: markers?.pickup ?? gmaps.BitmapDescriptor.defaultMarker,
+                anchor: const Offset(0.5, 0.5),
+                zIndexInt: 3,
+                consumeTapEvents: true,
               ),
-            ),
-          ),
-
-          // Bottom sheet - ride options
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              constraints: BoxConstraints(maxHeight: size.height * 0.42),
-              decoration: BoxDecoration(
-                color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 24, offset: const Offset(0, -4))],
+            if (markers != null)
+              for (final d in _nearbyDrivers)
+                gmaps.Marker(
+                  markerId: gmaps.MarkerId('driver-${d.id}'),
+                  position: d.position,
+                  icon: markers.nearbyFor(d.type),
+                  anchor: const Offset(0.5, 0.5),
+                  zIndexInt: 1,
+                  consumeTapEvents: true,
+                ),
+            if (_toLat != null && _toLng != null)
+              gmaps.Marker(
+                markerId: const gmaps.MarkerId('destination'),
+                position: gmaps.LatLng(_toLat!, _toLng!),
+                icon: markers?.destination ??
+                    gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueOrange),
+                anchor: const Offset(0.5, 0.95),
+                zIndexInt: 4,
+                consumeTapEvents: true,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 10),
-                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                    child: Row(
-                      children: [
-                        Text(app.t('Choose a ride', 'Chagua usafiri'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        if (_estimatedFare != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: (isDark ? AppColors.aquaGreen : AppColors.oceanTeal).withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '${formatTzs(_estimatedFare)} · ${_eta ?? '—'} min',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                                color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
+          };
+
+          return Stack(
+            children: [
+              gmaps.GoogleMap(
+                style: MapStyles.forBrightness(isDark),
+                padding: EdgeInsets.only(top: mapTopPad, bottom: _sheetH, left: 0, right: 0),
+                onMapCreated: (controller) {
+                  _googleMapController = controller;
+                  if (_route != null) {
+                    _fitRouteOnMap();
+                  } else if (hasPickup) {
+                    controller.animateCamera(gmaps.CameraUpdate.newLatLng(
+                      gmaps.LatLng(app.currentLat, app.currentLng),
+                    ));
+                  }
+                },
+                initialCameraPosition: gmaps.CameraPosition(
+                  target: hasPickup
+                      ? gmaps.LatLng(app.currentLat, app.currentLng)
+                      : const gmaps.LatLng(-6.1659, 39.2026),
+                  zoom: 14.5,
+                ),
+                myLocationEnabled: hasPickup,
+                myLocationButtonEnabled: false, // replaced by our own button below
+                zoomControlsEnabled: false,
+                mapToolbarEnabled: false,
+                compassEnabled: false,
+                rotateGesturesEnabled: false,
+                tiltGesturesEnabled: false,
+                buildingsEnabled: false,
+                trafficEnabled: false,
+                minMaxZoomPreference: const gmaps.MinMaxZoomPreference(8, 20),
+                polylines: polylines,
+                markers: mapMarkers,
+              ),
+
+              // ---------------------------------------------------------- top: search
+              Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: panelWidth),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(sideGap, 8, sideGap, 0),
+                      child: SizeReporter(
+                        onHeight: (h) {
+                          if ((h - _topH).abs() > 1 && mounted) setState(() => _topH = h);
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildSearchCard(app, isDark, compact, box.maxHeight),
+                            if (!searchActive) ...[
+                              SizedBox(height: compact ? 8 : 12),
+                              SizedBox(
+                                height: 38,
+                                child: ListView(
+                                  scrollDirection: Axis.horizontal,
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    _chip(Icons.inventory_2_rounded, app.t('Parcel', 'Kifurushi'), () {
+                                      Navigator.push(context, MaterialPageRoute(builder: (_) => const ParcelScreen()));
+                                    }, isDark),
+                                    _chip(Icons.beach_access_rounded, app.t('Tours', 'Ziara'), () {
+                                      Navigator.push(context, MaterialPageRoute(builder: (_) => const TourPackagesScreen()));
+                                    }, isDark),
+                                    _chip(Icons.local_offer_rounded, app.t('Offers', 'Ofa'), () {
+                                      Navigator.push(context, MaterialPageRoute(builder: (_) => const PromotionsScreen()));
+                                    }, isDark),
+                                  ],
+                                ),
                               ),
-                            ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ).animate().fadeIn(duration: 250.ms).slideY(begin: -0.12, end: 0, duration: 250.ms),
+                  ),
+                ),
+              ),
+
+              // ---------------------------------------------------------- map buttons
+              Positioned(
+                right: sideGap + 2,
+                bottom: _sheetH + 12,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 180),
+                  opacity: searchActive ? 0 : 1,
+                  child: IgnorePointer(
+                    ignoring: searchActive,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (route != null) ...[
+                          MapCircleButton(
+                            icon: Icons.zoom_out_map_rounded,
+                            isDark: isDark,
+                            tooltip: app.t('Show whole trip', 'Onyesha safari nzima'),
+                            onTap: _fitRouteOnMap,
                           ),
+                          const SizedBox(height: 10),
+                        ],
+                        MapCircleButton(
+                          icon: _locationLoading ? Icons.hourglass_top_rounded : Icons.my_location_rounded,
+                          isDark: isDark,
+                          tooltip: app.t('My location', 'Eneo langu'),
+                          onTap: _recenterOnMe,
+                        ),
                       ],
                     ),
                   ),
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      itemCount: AppConstants.rideTypes.length,
-                      itemBuilder: (_, i) {
-                        final r = AppConstants.rideTypes[i];
-                        final selected = _selectedRideType == r['id'];
-                        return GestureDetector(
-                          onTap: () => _selectRide((r['id'] ?? '').toString()),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? (isDark ? AppColors.aquaGreen.withOpacity(0.15) : AppColors.oceanTeal.withOpacity(0.1))
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(14),
-                              border: selected
-                                  ? Border.all(color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal, width: 1.5)
-                                  : null,
-                            ),
-                            child: Row(
+                ),
+              ),
+
+              // Honest hint if Google *and* OSRM were unreachable.
+              if (route != null && !route.followsRoads && !searchActive)
+                Positioned(
+                  left: sideGap + 2,
+                  bottom: _sheetH + 14,
+                  child: RouteInfoChip(
+                    duration: route.durationLabel,
+                    distance: route.distanceLabel,
+                    isDark: isDark,
+                    approximate: true,
+                  ),
+                ),
+
+              // ---------------------------------------------------------- bottom sheet
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: IgnorePointer(
+                  ignoring: searchActive,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    offset: searchActive ? const Offset(0, 1) : Offset.zero,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 160),
+                      opacity: searchActive ? 0 : 1,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: panelWidth,
+                          maxHeight: box.maxHeight * (compact ? 0.55 : 0.48),
+                        ),
+                        child: SizeReporter(
+                          onHeight: (h) {
+                            if ((h - _sheetH).abs() > 1 && mounted) setState(() => _sheetH = h);
+                          },
+                          child: _buildRideSheet(app, isDark, compact, accent),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ search card
+
+  Widget _buildSearchCard(AppProvider app, bool isDark, bool compact, double availableHeight) {
+    final muted = MapUi.textSecondary(isDark);
+    final accent = MapUi.accent(isDark);
+    final suggestionMax = (availableHeight * (compact ? 0.28 : 0.34)).clamp(110.0, 300.0);
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(14, compact ? 8 : 10, 6, compact ? 8 : 10),
+      decoration: BoxDecoration(
+        color: MapUi.panelColor(isDark),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.14), blurRadius: 18, offset: const Offset(0, 5))],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _searchRow(
+            leading: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                border: Border.all(color: accent, width: 3.5),
+              ),
+            ),
+            hint: app.t('Pickup location', 'Eneo la kuchukuliwa'),
+            ctrl: _fromCtrl,
+            focus: _fromFocus,
+            onChanged: (v) => _searchPlaces(v, forPickup: true),
+            trailing: IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: app.t('Use my location', 'Tumia eneo langu'),
+              icon: Icon(Icons.gps_fixed_rounded, size: 19, color: accent),
+              onPressed: () {
+                FocusScope.of(context).unfocus();
+                _loadCurrentLocation();
+              },
+            ),
+          ),
+          Row(
+            children: [
+              SizedBox(
+                width: 12,
+                child: Center(child: Container(width: 2, height: 14, color: muted.withValues(alpha: 0.35))),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Divider(height: 1, color: muted.withValues(alpha: 0.18))),
+              const SizedBox(width: 6),
+            ],
+          ),
+          _searchRow(
+            leading: Icon(Icons.location_on_rounded, size: 18, color: AppColors.coral),
+            hint: app.t('Where to?', 'Unakwenda wapi?'),
+            ctrl: _toCtrl,
+            focus: _toFocus,
+            onChanged: (v) => _searchPlaces(v, forPickup: false),
+            trailing: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _toCtrl,
+              builder: (_, v, __) => v.text.isEmpty
+                  ? const SizedBox(width: 40, height: 40)
+                  : IconButton(
+                      visualDensity: VisualDensity.compact,
+                      tooltip: app.t('Clear', 'Futa'),
+                      icon: Icon(Icons.close_rounded, size: 19, color: muted),
+                      onPressed: _clearDestination,
+                    ),
+            ),
+          ),
+          if (_placesLoading)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, right: 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(minHeight: 2.5, color: accent, backgroundColor: accent.withValues(alpha: 0.15)),
+              ),
+            ),
+          if (_placeSuggestions.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 8, right: 8),
+              constraints: BoxConstraints(maxHeight: suggestionMax),
+              decoration: BoxDecoration(
+                color: MapUi.panelSubtle(isDark),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                itemCount: _placeSuggestions.length,
+                separatorBuilder: (_, __) => Divider(height: 1, indent: 44, color: muted.withValues(alpha: 0.15)),
+                itemBuilder: (context, index) {
+                  final place = _placeSuggestions[index];
+                  final fmt = place['structured_formatting'];
+                  final mainText = (fmt is Map ? (fmt['main_text'] ?? place['description']) : place['description']).toString();
+                  final secondary = (fmt is Map ? (fmt['secondary_text'] ?? '') : '').toString();
+                  return InkWell(
+                    onTap: () => _selectPlace(place),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(color: accent.withValues(alpha: 0.13), shape: BoxShape.circle),
+                            child: Icon(Icons.place_outlined, size: 17, color: accent),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(
-                                  r['icon'] as IconData,
-                                  size: 28,
-                                  color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
-                                ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        (app.isSwahili ? r['nameSw'] : r['name']).toString(),
-                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                                      ),
-                                      Text(
-                                        _fares.containsKey(r['id'])
-                                            ? (_fares[r['id']] != null
-                                                ? '${formatTzs(_fares[r['id']])}'
-                                                : 'Tap to retry quote')
-                                            : (_toLat != null && context.read<AppProvider>().currentLat != 0
-                                                ? 'Getting quote…'
-                                                : 'Select pickup & destination'),
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: _fares[r['id']] != null ? FontWeight.w600 : FontWeight.normal,
-                                          color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (selected) Icon(Icons.check_circle, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
+                                Text(mainText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                                if (secondary.isNotEmpty)
+                                  Text(secondary,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 12, color: muted)),
                               ],
                             ),
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _pickPaymentMethod,
-                            icon: const Icon(Icons.payment, size: 18),
-                            label: Text(
-                              AppConstants.paymentMethods.firstWhere((m) => m['id'] == _paymentMethod, orElse: () => AppConstants.paymentMethods[0])['name'].toString(),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          onPressed: _pickSavedDestination,
-                          icon: const Icon(Icons.bookmark_border, size: 18),
-                          label: Text(app.t('Saved', 'Imehifadhiwa')),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (app.pendingPromoCode != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-                      child: Row(
-                        children: [
-                          Icon(Icons.local_offer, size: 16, color: AppColors.brightGreen),
-                          const SizedBox(width: 6),
-                          Expanded(child: Text(app.t('Promo ${app.pendingPromoCode} (-${formatTzs(app.pendingDiscount, withCurrency: false)})', 'Promo ${app.pendingPromoCode} (-${formatTzs(app.pendingDiscount, withCurrency: false)})'), style: const TextStyle(fontSize: 12, color: AppColors.brightGreen))),
-                          TextButton(onPressed: () { app.clearPromo(); setState(() {}); }, child: Text(app.t('Clear', 'Futa'), style: const TextStyle(fontSize: 12))),
                         ],
                       ),
                     ),
-                  // Active ride banner
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _searchRow({
+    required Widget leading,
+    required String hint,
+    required TextEditingController ctrl,
+    required FocusNode focus,
+    required ValueChanged<String> onChanged,
+    required Widget trailing,
+  }) {
+    return Row(
+      children: [
+        SizedBox(width: 12, child: Center(child: leading)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: TextField(
+            controller: ctrl,
+            focusNode: focus,
+            onChanged: onChanged,
+            maxLines: 1,
+            textInputAction: TextInputAction.search,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            decoration: InputDecoration(
+              hintText: hint,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              filled: false,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 13),
+            ),
+          ),
+        ),
+        trailing,
+      ],
+    );
+  }
+
+  // ------------------------------------------------------------------ bottom sheet
+
+  Widget _buildRideSheet(AppProvider app, bool isDark, bool compact, Color accent) {
+    final muted = MapUi.textSecondary(isDark);
+    final route = _route;
+    final hPad = compact ? 14.0 : 18.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: MapUi.panelColor(isDark),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.16), blurRadius: 24, offset: const Offset(0, -4))],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Container(width: 38, height: 4, decoration: BoxDecoration(color: muted.withValues(alpha: 0.4), borderRadius: BorderRadius.circular(2))),
+          Padding(
+            padding: EdgeInsets.fromLTRB(hPad, compact ? 10 : 14, hPad, 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    app.t('Choose a ride', 'Chagua usafiri'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: compact ? 16 : 18, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                if (route != null)
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(color: accent.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(20)),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.route_rounded, size: 14, color: accent),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              '${_eta != null ? '$_eta min' : route.durationLabel} · ${route.distanceLabel}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: accent),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(horizontal: hPad - 4),
+              child: Column(
+                children: [
+                  ...AppConstants.rideTypes.map((r) => _rideTile(app, r, isDark, compact, accent)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _pickPaymentMethod,
+                          style: _smallOutlined(accent, muted),
+                          icon: const Icon(Icons.account_balance_wallet_outlined, size: 17),
+                          label: Text(
+                            AppConstants.paymentMethods
+                                .firstWhere((m) => m['id'] == _paymentMethod, orElse: () => AppConstants.paymentMethods[0])['name']
+                                .toString(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _pickSavedDestination,
+                          style: _smallOutlined(accent, muted),
+                          icon: const Icon(Icons.bookmark_border_rounded, size: 17),
+                          label: Text(app.t('Saved', 'Imehifadhiwa'), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (app.pendingPromoCode != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.local_offer, size: 16, color: AppColors.brightGreen),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Promo ${app.pendingPromoCode} (-${formatTzs(app.pendingDiscount, withCurrency: false)})',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, color: AppColors.brightGreen),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              app.clearPromo();
+                              setState(() {});
+                            },
+                            child: Text(app.t('Clear', 'Futa'), style: const TextStyle(fontSize: 12)),
+                          ),
+                        ],
+                      ),
+                    ),
                   if (app.activeRide != null && app.activeRide!.isActive)
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                      padding: const EdgeInsets.only(top: 8),
                       child: Material(
-                        color: AppColors.oceanTeal.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12),
+                        color: accent.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(14),
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => RideDetailsScreen(existingRide: app.activeRide)));
-                          },
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => RideDetailsScreen(existingRide: app.activeRide)),
+                          ),
                           child: Padding(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                             child: Row(
                               children: [
-                                const Icon(Icons.directions_car, color: AppColors.oceanTeal),
+                                Icon(Icons.directions_car_filled_rounded, color: accent, size: 20),
                                 const SizedBox(width: 10),
-                                Expanded(child: Text(app.t('Active ride · ${app.activeRide!.status}', 'Safari hai · ${app.activeRide!.status}'), style: const TextStyle(fontWeight: FontWeight.w600))),
-                                const Icon(Icons.chevron_right),
+                                Expanded(
+                                  child: Text(
+                                    app.t('Active ride · ${app.activeRide!.status}', 'Safari hai · ${app.activeRide!.status}'),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w700),
+                                  ),
+                                ),
+                                const Icon(Icons.chevron_right_rounded),
                               ],
                             ),
                           ),
                         ),
                       ),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: _searching ? null : _requestRide,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.brightGreen,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: _searching
-                            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
-                            : Text(app.t('Request Ride', 'Omba Safari'), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                      ),
-                    ),
-                  ),
                 ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(hPad, 10, hPad, compact ? 12 : 16),
+            child: SizedBox(
+              width: double.infinity,
+              height: compact ? 48 : 52,
+              child: ElevatedButton(
+                onPressed: _searching ? null : _requestRide,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.brightGreen,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: _searching
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                    : Text(app.t('Request Ride', 'Omba Safari'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
               ),
             ),
           ),
@@ -962,44 +1272,105 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _searchRow(IconData icon, String hint, TextEditingController ctrl, bool isDark, bool readOnly, {ValueChanged<String>? onChanged}) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
-        const SizedBox(width: 12),
-        Expanded(
-          child: TextField(
-            controller: ctrl,
-            readOnly: readOnly,
-            onChanged: onChanged,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-            decoration: InputDecoration(
-              hintText: hint,
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              filled: false,
-              contentPadding: EdgeInsets.zero,
-              isDense: true,
+  ButtonStyle _smallOutlined(Color accent, Color muted) => OutlinedButton.styleFrom(
+        foregroundColor: accent,
+        side: BorderSide(color: muted.withValues(alpha: 0.35)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        minimumSize: const Size(0, 42),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      );
+
+  Widget _rideTile(AppProvider app, Map<String, dynamic> r, bool isDark, bool compact, Color accent) {
+    final id = (r['id'] ?? '').toString();
+    final selected = _selectedRideType == id;
+    final muted = MapUi.textSecondary(isDark);
+    final fare = _fares[id];
+    final hasQuoteContext = _toLat != null && context.read<AppProvider>().currentLat != 0;
+    final subtitle = _fares.containsKey(id)
+        ? (fare != null ? app.t('Fixed fare', 'Nauli maalum') : app.t('Tap to retry quote', 'Gusa kujaribu tena'))
+        : (hasQuoteContext
+            ? app.t('Getting quote…', 'Inapata bei…')
+            : app.t('Select pickup & destination', 'Chagua eneo la kuchukuliwa na kwenda'));
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Material(
+        color: selected ? accent.withValues(alpha: isDark ? 0.16 : 0.09) : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _selectRide(id),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 9 : 11),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: selected ? accent : muted.withValues(alpha: 0.2), width: selected ? 1.6 : 1),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: compact ? 38 : 44,
+                  height: compact ? 38 : 44,
+                  decoration: BoxDecoration(
+                    color: selected ? accent : accent.withValues(alpha: 0.13),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(r['icon'] as IconData, size: compact ? 22 : 26, color: selected ? Colors.white : accent),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (app.isSwahili ? r['nameSw'] : r['name']).toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                      ),
+                      Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: muted)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (fare != null)
+                  Text(formatTzs(fare), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))
+                else if (_fares.isEmpty && hasQuoteContext)
+                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: accent)),
+              ],
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 
   Widget _chip(IconData icon, String label, VoidCallback onTap, bool isDark) {
+    final accent = MapUi.accent(isDark);
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: ActionChip(
-        avatar: Icon(icon, size: 18, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
-        label: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-        onPressed: onTap,
-        backgroundColor: isDark ? AppColors.darkSurface.withOpacity(0.9) : AppColors.lightSurface.withOpacity(0.95),
-        side: BorderSide.none,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        elevation: 2,
-        shadowColor: Colors.black26,
+      child: Material(
+        color: MapUi.panelColor(isDark),
+        elevation: 3,
+        shadowColor: Colors.black38,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 13),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 17, color: accent),
+                const SizedBox(width: 7),
+                Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

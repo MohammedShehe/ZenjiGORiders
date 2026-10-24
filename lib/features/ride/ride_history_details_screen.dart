@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
+import '../../core/map/trip_map.dart';
+import '../../core/utils/tanzania_time.dart';
 import '../../core/theme/app_colors.dart';
 import '../../models/ride_model.dart';
 import '../../providers/app_provider.dart';
@@ -27,32 +29,30 @@ class RideHistoryDetailsScreen extends StatelessWidget {
       ),
       body: ListView(
         children: [
-          SizedBox(
-            height: 200,
-            child: ride.fromLat != 0 && ride.fromLng != 0
-                ? gmaps.GoogleMap(
-                    initialCameraPosition: gmaps.CameraPosition(
-                      target: gmaps.LatLng(ride.fromLat, ride.fromLng),
-                      zoom: 13,
-                    ),
-                    zoomControlsEnabled: false,
-                    markers: {
-                      gmaps.Marker(
-                        markerId: const gmaps.MarkerId('pickup'),
-                        position: gmaps.LatLng(ride.fromLat, ride.fromLng),
-                        infoWindow: const gmaps.InfoWindow(title: 'Pickup'),
-                      ),
-                      if (ride.toLat != 0 && ride.toLng != 0)
-                        gmaps.Marker(
-                          markerId: const gmaps.MarkerId('destination'),
-                          position: gmaps.LatLng(ride.toLat, ride.toLng),
-                          icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(gmaps.BitmapDescriptor.hueOrange),
-                          infoWindow: const gmaps.InfoWindow(title: 'Destination'),
-                        ),
-                    },
-                  )
-                : const Center(child: Text('Ride coordinates are unavailable from the server.')),
-          ),
+          Builder(builder: (context) {
+            // Taller on big screens, never more than ~40% of a small phone.
+            final screenH = MediaQuery.of(context).size.height;
+            final mapH = (screenH * 0.3).clamp(190.0, 320.0).toDouble();
+            final hasFrom = ride.fromLat != 0 && ride.fromLng != 0;
+            final hasTo = ride.toLat != 0 && ride.toLng != 0;
+            if (!hasFrom) {
+              return SizedBox(
+                height: 120,
+                child: Center(child: Text(app.t('Ride coordinates are unavailable.', 'Eneo la safari halipatikani.'))),
+              );
+            }
+            return SizedBox(
+              height: mapH,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(22)),
+                child: TripRouteMap(
+                  from: gmaps.LatLng(ride.fromLat, ride.fromLng),
+                  to: hasTo ? gmaps.LatLng(ride.toLat, ride.toLng) : gmaps.LatLng(ride.fromLat, ride.fromLng),
+                  isDark: isDark,
+                ),
+              ),
+            );
+          }),
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -106,12 +106,12 @@ class RideHistoryDetailsScreen extends StatelessWidget {
                 _line(app.t('Total', 'Jumla'), 'TZS ${total.toStringAsFixed(0)}', bold: true),
                 const SizedBox(height: 8),
                 Text(
-                  '${app.t('Booked', 'Iliagizwa')}: ${ride.createdAt}',
+                  '${app.t('Booked', 'Iliagizwa')}: ${TanzaniaTime.format(ride.createdAt)}',
                   style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
                 ),
                 if (ride.completedAt != null)
                   Text(
-                    '${app.t('Completed', 'Ilikamilika')}: ${ride.completedAt}',
+                    '${app.t('Completed', 'Ilikamilika')}: ${TanzaniaTime.format(ride.completedAt)}',
                     style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
                   ),
               ],

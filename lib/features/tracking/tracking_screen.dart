@@ -1,11 +1,19 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:provider/provider.dart';
+import '../../core/map/map_motion.dart';
+import '../../core/map/map_style.dart';
+import '../../core/map/map_widgets.dart';
+import '../../core/map/route_utils.dart';
+import '../../core/map/trip_map.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/directions_service.dart';
 import '../../providers/app_provider.dart';
 
+/// Simple live-tracking view for parcels / tours: a real styled map, the road route between
+/// the two addresses and a vehicle that moves along it.
 class TrackingScreen extends StatefulWidget {
   final String title;
   final String from;
@@ -27,33 +35,63 @@ class TrackingScreen extends StatefulWidget {
 }
 
 class _TrackingScreenState extends State<TrackingScreen> {
+  // Stone Town → Mjini Magharibi fallback so the screen is never empty.
+  static const _fallbackFrom = gmaps.LatLng(-6.1659, 39.2026);
+  static const _fallbackTo = gmaps.LatLng(-6.1700, 39.2100);
+
+  final MovingPoint _vehicle = MovingPoint();
   Timer? _timer;
+  gmaps.LatLng? _from;
+  gmaps.LatLng? _to;
+  RouteTracker? _tracker;
   int _progress = 12;
-  final LatLng _pickup = const LatLng(-6.1659, 39.2026);
-  final LatLng _destination = const LatLng(-6.1700, 39.2100);
-  late LatLng _vehicle;
+  double _panelH = 0;
 
   @override
   void initState() {
     super.initState();
-    _vehicle = _pickup;
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (!mounted || _progress >= 100) return;
-      setState(() {
-        _progress = (_progress + 4).clamp(0, 100);
-        final t = _progress / 100;
-        _vehicle = LatLng(
-          _pickup.latitude + (_destination.latitude - _pickup.latitude) * t,
-          _pickup.longitude + (_destination.longitude - _pickup.longitude) * t,
-        );
-      });
-    });
+    _resolvePlaces();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _vehicle.dispose();
     super.dispose();
+  }
+
+  Future<gmaps.LatLng?> _geocode(String address, gmaps.LatLng? fallback) async {
+    final q = address.trim();
+    if (q.isEmpty) return fallback;
+    try {
+      final list = await locationFromAddress('$q, Zanzibar, Tanzania').timeout(const Duration(seconds: 6));
+      if (list.isNotEmpty) return gmaps.LatLng(list.first.latitude, list.first.longitude);
+    } catch (_) {}
+    return fallback;
+  }
+
+  Future<void> _resolvePlaces() async {
+    final results = await Future.wait([
+      _geocode(widget.from, _fallbackFrom),
+      _geocode(widget.to, _fallbackTo),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _from = results[0];
+      _to = results[1];
+    });
+  }
+
+  void _onRoute(RouteResult r) {
+    _tracker = RouteTracker(r.points);
+    _vehicle.moveTo(_tracker!.pointAt(_tracker!.totalMeters * _progress / 100));
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted || _progress >= 100 || _tracker == null) return;
+      setState(() => _progress = (_progress + 4).clamp(0, 100));
+      final p = _tracker!.pointAt(_tracker!.totalMeters * _progress / 100);
+      _vehicle.moveTo(p);
+    });
   }
 
   String get _stage {
@@ -70,178 +108,125 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   Widget build(BuildContext context) {
     final dark = context.watch<AppProvider>().isDark;
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      body: Stack(
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
-              final height = constraints.maxHeight;
-              Offset position(LatLng point) {
-                final x = (point.longitude - 39.198) / (39.214 - 39.198);
-                final y = 1 - (point.latitude - (-6.173)) / (-6.161 - (-6.173));
-                return Offset(x * width, y * height);
-              }
+    final accent = MapUi.accent(dark);
+    final mq = MediaQuery.of(context);
+    final from = _from, to = _to;
 
-              Widget marker(Offset point, double size, Widget child) =>
-                  Positioned(
-                    left: point.dx - size / 2,
-                    top: point.dy - size / 2,
-                    width: size,
-                    height: size,
-                    child: child,
-                  );
-
-              return Stack(
-                children: [
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _TrackingMapPainter(dark: dark),
-                    ),
-                  ),
-                  marker(
-                    position(_pickup),
-                    42,
-                    const Icon(Icons.my_location, color: AppColors.brightGreen, size: 34),
-                  ),
-                  marker(
-                    position(_destination),
-                    42,
-                    const Icon(Icons.location_on, color: AppColors.sunsetOrange, size: 38),
-                  ),
-                  marker(
-                    position(_vehicle),
-                    48,
-                    CircleAvatar(
-                      backgroundColor: dark ? AppColors.aquaGreen : AppColors.oceanTeal,
-                      child: Icon(
-                        widget.type == 'parcel'
-                            ? Icons.local_shipping
-                            : Icons.directions_car,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
+    return MediaQuery(
+      data: mq.copyWith(textScaler: mq.textScaler.clamp(minScaleFactor: 0.9, maxScaleFactor: 1.2)),
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          title: FloatingPill(
+            isDark: dark,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
           ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
-              decoration: BoxDecoration(
-                color: dark ? AppColors.darkSurface : Colors.white,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .15), blurRadius: 18)],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: Text(_stage, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700))),
-                      Text('$_progress%', style: TextStyle(color: dark ? AppColors.aquaGreen : AppColors.oceanTeal, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  LinearProgressIndicator(value: _progress / 100, minHeight: 7, borderRadius: BorderRadius.circular(8)),
-                  const SizedBox(height: 18),
-                  _point(Icons.my_location, 'Pickup', widget.from, dark),
-                  const SizedBox(height: 10),
-                  _point(Icons.location_on, 'Destination', widget.to, dark),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tracking link is ready to share.'))),
-                          icon: const Icon(Icons.share_location),
-                          label: const Text('Share Tracking'),
+          leading: Padding(
+            padding: const EdgeInsets.all(5),
+            child: MapCircleButton(icon: Icons.arrow_back_rounded, isDark: dark, onTap: () => Navigator.pop(context)),
+          ),
+        ),
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: from == null || to == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : TripRouteMap(
+                      from: from,
+                      to: to,
+                      isDark: dark,
+                      vehicle: _vehicle,
+                      onRoute: _onRoute,
+                      padding: EdgeInsets.only(top: mq.padding.top + kToolbarHeight, bottom: _panelH),
+                    ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: 560, maxHeight: mq.size.height * 0.6),
+                child: SizeReporter(
+                  onHeight: (h) {
+                    if ((h - _panelH).abs() > 1 && mounted) setState(() => _panelH = h);
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: MapUi.panelColor(dark),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .16), blurRadius: 20)],
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(child: Text(_stage, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
+                                Text('$_progress%', style: TextStyle(color: accent, fontWeight: FontWeight.w900)),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: LinearProgressIndicator(value: _progress / 100, minHeight: 7, color: accent, backgroundColor: accent.withValues(alpha: 0.15)),
+                            ),
+                            const SizedBox(height: 16),
+                            _point(Icons.my_location_rounded, 'Pickup', widget.from, dark),
+                            const SizedBox(height: 10),
+                            _point(Icons.location_on_rounded, 'Destination', widget.to, dark),
+                            const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tracking link is ready to share.'))),
+                                    icon: const Icon(Icons.share_location_rounded, size: 18),
+                                    label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Share')),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => Navigator.pop(context),
+                                    icon: const Icon(Icons.done_rounded, size: 18),
+                                    label: const Text('Close'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.done),
-                          label: const Text('Close'),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _point(IconData icon, String label, String value, bool dark) {
+    final muted = MapUi.textSecondary(dark);
     return Row(
       children: [
-        Icon(icon, size: 20, color: dark ? AppColors.aquaGreen : AppColors.oceanTeal),
+        Icon(icon, size: 20, color: icon == Icons.location_on_rounded ? AppColors.coral : MapUi.accent(dark)),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-              Text(value, maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: muted)),
+              Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
             ],
           ),
         ),
       ],
     );
   }
-}
-
-class _TrackingMapPainter extends CustomPainter {
-  final bool dark;
-
-  const _TrackingMapPainter({required this.dark});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final background = Paint()
-      ..color = dark ? const Color(0xFF202A30) : const Color(0xFFE8EFE8);
-    canvas.drawRect(Offset.zero & size, background);
-
-    final road = Paint()
-      ..color = dark ? const Color(0xFF35434A) : Colors.white
-      ..strokeWidth = 12
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    final roads = [
-      [Offset(0, size.height * .22), Offset(size.width * .36, size.height * .4), Offset(size.width, size.height * .3)],
-      [Offset(size.width * .12, size.height), Offset(size.width * .38, size.height * .62), Offset(size.width * .75, 0)],
-      [Offset(0, size.height * .78), Offset(size.width * .45, size.height * .72), Offset(size.width, size.height * .9)],
-    ];
-    for (final points in roads) {
-      final path = ui.Path()..moveTo(points.first.dx, points.first.dy);
-      for (final point in points.skip(1)) {
-        path.lineTo(point.dx, point.dy);
-      }
-      canvas.drawPath(path, road);
-    }
-
-    final route = Paint()
-      ..color = dark ? AppColors.aquaGreen : AppColors.oceanTeal
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      Offset(size.width * .2875, size.height * .5917),
-      Offset(size.width * .75, size.height * .25),
-      route,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _TrackingMapPainter oldDelegate) =>
-      oldDelegate.dark != dark;
 }

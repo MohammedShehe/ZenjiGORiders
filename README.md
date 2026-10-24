@@ -86,3 +86,19 @@ This source archive was edited in an environment without the Flutter SDK, so a F
 Build/test note: this archive was source-checked and ZIP integrity-checked. Flutter/Dart SDK was not available in this environment, so a Flutter compile or live backend registration test could not be run.
 
 Runtime type-safety fix: rider profile fields and IDs returned as numeric JSON values are normalized to strings before creating the typed user model. Also removed unsafe String casts from the ride/payment selector.
+
+## Maps, routes and live tracking (updated)
+
+- **Road-following routes.** `lib/core/utils/directions_service.dart` calls the Google Routes API and now sends the
+  app identity headers (`X-Android-Package` + `X-Android-Cert`, or `X-Ios-Bundle-Identifier`). App-restricted keys are
+  rejected (HTTP 403) without them, which is why routes used to collapse into a straight line.
+  If Google is unreachable the service falls back to OSRM (OpenStreetMap roads) and only then to a dashed straight line,
+  which the UI labels as approximate. Run with `flutter run` and watch the console for `DirectionsService:` lines to see
+  exactly why Google declined, if it ever does.
+- **Key checklist (Google Cloud Console):** the key's *API restrictions* must include **Routes API**, and its
+  *Android restrictions* must list `applicationId` + the SHA-1 of every signing certificate you install with
+  (debug, release and, if you use Play App Signing, the Play signing certificate).
+- **Shared map kit** in `lib/core/map/`: `map_style.dart` (light/dark map styles, cased route lines),
+  `map_markers.dart` (crisp custom pins), `map_motion.dart` (smooth vehicle movement), `trip_map.dart` (reusable
+  route map), `map_widgets.dart` (floating buttons / chips).
+- Run `flutter pub get` after pulling this update (adds `package_info_plus`).
