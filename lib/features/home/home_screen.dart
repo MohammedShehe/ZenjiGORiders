@@ -573,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     if (confirm != true || !mounted) return;
 
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => RideDetailsScreen(
           rideType: _selectedRideType!,
@@ -591,6 +591,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+    // Back from the ride screen (completed, cancelled or dismissed): wipe the previous trip from the
+    // booking form and the map so the next booking starts clean.
+    if (!mounted) return;
+    _resetAfterRide();
+  }
+
+  void _resetAfterRide() {
+    setState(() {
+      _toCtrl.clear();
+      _toLat = null;
+      _toLng = null;
+      _estimatedFare = null;
+      _eta = null;
+      _fares = {};
+      _placeSuggestions = [];
+      _searching = false;
+      _clearRouteState();
+    });
+    context.read<AppProvider>().refreshWallet();
+    _recenterOnMe();
   }
 
   void _pickPaymentMethod() async {

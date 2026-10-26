@@ -111,6 +111,16 @@ class RiderApi {
     return Map<String, dynamic>.from(d is Map ? d : {});
   }
 
+  /// Pay the fare once the driver confirmed arrival at the destination.
+  /// method: cash | wallet | momo | card | bank
+  static Future<Map<String, dynamic>> payRide(String id, {String? method, String? phone}) async {
+    final d = await ApiClient.data('POST', '/rider/rides/$id/pay', body: {
+      if (method != null) 'method': method,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
   static Future<List<dynamic>> nearbyDrivers(double lat, double lng, {double radiusKm = 5}) async {
     final d = await ApiClient.data('GET', '/rider/drivers/nearby?lat=$lat&lng=$lng&radius=$radiusKm');
     return List<dynamic>.from(d is List ? d : (d is Map && d['drivers'] is List ? d['drivers'] : []));
@@ -233,11 +243,27 @@ class RiderApi {
     return List<dynamic>.from(d is List ? d : (d is Map && d['messages'] is List ? d['messages'] : (d is Map && d['items'] is List ? d['items'] : [])));
   }
 
-  static Future<Map<String, dynamic>> sendMessage(String conversationId, String text) async {
+  static Future<Map<String, dynamic>> sendMessage(String conversationId, String text, {String? replyToId}) async {
     final d = await ApiClient.data('POST', '/rider/chat/$conversationId/messages', body: {
       'text': text,
+      if (replyToId != null && replyToId.isNotEmpty) 'replyToId': int.tryParse(replyToId) ?? replyToId,
     });
     return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  /// Opens (or creates) the chat thread of a ride and returns its conversation id.
+  static Future<String> rideConversation(String rideId) async {
+    final d = await ApiClient.data('POST', '/rider/chat/ride/$rideId');
+    final m = Map<String, dynamic>.from(d is Map ? d : {});
+    return (m['conversationId'] ?? m['id'] ?? '').toString();
+  }
+
+  static Future<void> editMessage(String conversationId, String messageId, String text) async {
+    await ApiClient.data('PATCH', '/rider/chat/$conversationId/messages/$messageId', body: {'text': text});
+  }
+
+  static Future<void> deleteMessage(String conversationId, String messageId) async {
+    await ApiClient.data('DELETE', '/rider/chat/$conversationId/messages/$messageId');
   }
 
   static Future<void> markRead(String conversationId) async {

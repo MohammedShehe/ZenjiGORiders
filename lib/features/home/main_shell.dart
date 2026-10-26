@@ -67,7 +67,14 @@ class _MainShellState extends State<MainShell> {
         : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary);
 
     return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
+      onTap: () {
+        setState(() => _currentIndex = index);
+        // Always load fresh data when a tab opens (IndexedStack builds tabs only once).
+        final p = context.read<AppProvider>();
+        if (index == 2) p.refreshConversations();
+        if (index == 1) p.refreshWallet();
+        if (index == 3) p.refreshAccountCollections();
+      },
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -79,7 +86,12 @@ class _MainShellState extends State<MainShell> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(selected ? active : inactive, color: color, size: 24),
+            Builder(builder: (ctx) {
+              final unread = index == 2 ? ctx.watch<AppProvider>().totalUnreadChats : 0;
+              final icon = Icon(selected ? active : inactive, color: color, size: 24);
+              if (unread <= 0) return icon;
+              return Badge(label: Text(unread > 9 ? '9+' : '$unread'), child: icon);
+            }),
             const SizedBox(height: 4),
             Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: selected ? FontWeight.w600 : FontWeight.w400)),
           ],

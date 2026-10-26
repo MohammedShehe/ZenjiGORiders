@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:cached_network_image/cached_network_image.dart';
@@ -17,7 +18,7 @@ import '../../core/utils/tanzania_time.dart';
 import '../../models/ride_model.dart';
 import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
-import '../chat/chat_list_screen.dart';
+import '../chat/chat_detail_screen.dart';
 import 'ride_receipt_screen.dart';
 
 /// Live booking / active-ride screen.
@@ -84,6 +85,13 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   gmaps.LatLng? _lastFitDriver;
   String _lastFitStatus = '';
   double _panelH = 0;
+
+  // --- lifecycle / payment state ---------------------------------------------------
+  bool _arrivedShown = false;
+  bool _payPromptShown = false;
+  bool _paying = false;
+  bool _finishing = false;
+  bool _cancelledHandled = false;
 
   bool get _inTrip => _ride.status == 'started' || _ride.status == 'in_progress';
   bool get _hasDriverFix => _ride.driver != null && _ride.driver!.lat != 0 && _ride.driver!.lng != 0;
@@ -343,20 +351,41 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     _statusTimer?.cancel();
     _searchSeconds = 0;
     _pollServerRide();
-    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _pollServerRide());
+    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) => _pollServerRide());
   }
 
+  static bool _truthy(dynamic v) => v == true || v == 1 || v == '1' || v == 'true';
+
   Future<void> _pollServerRide() async {
-    if (!mounted || _ride.id == 'pending') return;
+    if (!mounted || _ride.id == 'pending' || _finishing) return;
     try {
       final payload = await RiderApi.getRide(_ride.id);
       final raw = payload['ride'] is Map ? Map<String, dynamic>.from(payload['ride']) : payload;
       final status = (raw['status'] ?? _ride.status).toString().toLowerCase();
-      final driverRaw = raw['driver'] is Map ? Map<String, dynamic>.from(raw['driver']) : null;
+
+      // The API nests the driver in `driver`; fall back to the flat driver_* columns just in case.
+      Map<String, dynamic>? driverRaw = raw['driver'] is Map ? Map<String, dynamic>.from(raw['driver']) : null;
+      if (driverRaw == null && raw['driver_id'] != null) {
+        driverRaw = {
+          'id': raw['driver_id'],
+          'fullName': raw['driver_name'],
+          'phone': raw['driver_phone'],
+          'photoUrl': raw['driver_photo'],
+          'plateNumber': raw['vehicle_number'],
+          'vehicleType': raw['vehicle_type'],
+          'rating': raw['driver_rating'],
+          'totalRides': raw['driver_total_rides'],
+          'lat': raw['driver_lat'],
+          'lng': raw['driver_lng'],
+        };
+      }
       DriverModel? driver = _ride.driver;
       if (driverRaw != null) {
         final lat = double.tryParse((driverRaw['lat'] ?? driverRaw['latitude'] ?? '').toString()) ?? driver?.lat ?? 0;
         final lng = double.tryParse((driverRaw['lng'] ?? driverRaw['longitude'] ?? '').toString()) ?? driver?.lng ?? 0;
+        final make = (driverRaw['vehicleMake'] ?? '').toString();
+        final model = (driverRaw['vehicleModel'] ?? '').toString();
+        final color = (driverRaw['vehicleColor'] ?? '').toString();
         driver = DriverModel(
           id: (driverRaw['id'] ?? driverRaw['_id'] ?? driver?.id ?? '').toString(),
           name: (driverRaw['fullName'] ?? driverRaw['name'] ?? driver?.name ?? 'Driver').toString(),
@@ -368,43 +397,330 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           totalRides: int.tryParse((driverRaw['totalRides'] ?? driver?.totalRides ?? 0).toString()) ?? 0,
           lat: lat,
           lng: lng,
+          vehicleDescription: [color, make, model].where((e) => e.trim().isNotEmpty).join(' '),
         );
       }
-      var next = _ride.copyWith(status: status, driver: driver);
+
+      final pin = (raw['trip_pin'] ?? raw['tripPin'])?.toString();
+      final fare = double.tryParse((raw['estimated_fare'] ?? raw['estimatedFare'] ?? '').toString());
+      final due = double.tryParse((raw['amount_due'] ?? raw['amountDue'] ?? '').toString());
+      final method = (raw['payment_method'] ?? raw['paymentMethod'])?.toString();
+
+      var next = _ride.copyWith(
+        status: status,
+        driver: driver,
+        tripPin: (pin != null && pin.isNotEmpty) ? pin : null,
+        paymentStatus: (raw['payment_status'] ?? raw['paymentStatus'] ?? _ride.paymentStatus).toString(),
+        reachedDestination: _truthy(raw['reached_destination'] ?? raw['reachedDestination']) || _ride.reachedDestination,
+        amountDue: due,
+        estimatedFare: (fare != null && fare > 0) ? fare : null,
+        paymentMethod: method,
+      );
+
+      // Live driver position (latest GPS ping stored by the driver app).
       try {
         final track = await RiderApi.track(_ride.id);
-        final lat = double.tryParse((track['driverLat'] ?? track['driver_lat'] ?? '').toString());
-        final lng = double.tryParse((track['driverLng'] ?? track['driver_lng'] ?? '').toString());
-        if (driver != null && lat != null && lng != null) next = next.copyWith(driver: driver.copyWith(lat: lat, lng: lng));
-      } catch (_) { /* Tracking can be unavailable before a driver is assigned. */ }
+        double? lat = double.tryParse((track['driverLat'] ?? track['driver_lat'] ?? '').toString());
+        double? lng = double.tryParse((track['driverLng'] ?? track['driver_lng'] ?? '').toString());
+        if ((lat == null || lng == null) && track['location'] is Map) {
+          final loc = Map<String, dynamic>.from(track['location']);
+          lat = double.tryParse((loc['lat'] ?? '').toString());
+          lng = double.tryParse((loc['lng'] ?? '').toString());
+        }
+        if (next.driver != null && lat != null && lng != null && lat != 0 && lng != 0) {
+          next = next.copyWith(driver: next.driver!.copyWith(lat: lat, lng: lng));
+        }
+      } catch (_) {/* Tracking can be unavailable before a driver is assigned. */}
+
       if (!mounted) return;
-      final wasCompleted = _ride.status == 'completed';
+      final prevStatus = _ride.status;
+      final prevReached = _ride.reachedDestination;
       setState(() {
         _ride = next;
-        _searchSeconds += 5;
+        _searchSeconds += 3;
         _noDriver = false;
       });
       context.read<AppProvider>().updateActiveRide(_ride);
       _onRideUpdated();
-      if (status == 'completed' && !wasCompleted && _ride.rating == null) {
-        _statusTimer?.cancel();
-        await _showRatingAndComplete();
-      } else if (status == 'cancelled' || status == 'completed') {
-        _statusTimer?.cancel();
-      }
+      _handleTransitions(prevStatus, prevReached);
     } catch (_) {
       // Keep the current screen responsive during transient network failures; retry next poll.
     }
+  }
+
+  /// Reacts to server-side changes: driver found, driver arrived, destination reached, paid, cancelled.
+  void _handleTransitions(String prevStatus, bool prevReached) {
+    final app = context.read<AppProvider>();
+    final status = _ride.status;
+
+    if (prevStatus == 'searching' && status != 'searching' && status != 'cancelled') {
+      HapticFeedback.mediumImpact();
+      _loadTripRoute();
+      _autoFollow = true;
+      _fitView(force: true);
+    }
+
+    if (status == 'arrived' && !_arrivedShown) {
+      _arrivedShown = true;
+      HapticFeedback.heavyImpact();
+      _showInfoDialog(
+        icon: Icons.location_on_rounded,
+        color: AppColors.brightGreen,
+        title: app.t('Your driver has arrived', 'Dereva wako amefika'),
+        message: app.t(
+          'Meet your driver at the pickup point and share your PIN ${_ride.tripPin ?? ''} to start the trip.',
+          'Kutana na dereva wako sehemu ya kuchukuliwa na mpe PIN ${_ride.tripPin ?? ''} kuanza safari.',
+        ),
+      );
+    }
+
+    if (_ride.awaitingPayment && !_payPromptShown) {
+      _payPromptShown = true;
+      HapticFeedback.heavyImpact();
+      _openPaymentSheet();
+    }
+
+    if (status == 'cancelled' && !_cancelledHandled) {
+      _cancelledHandled = true;
+      _statusTimer?.cancel();
+      _onDriverCancelled();
+      return;
+    }
+
+    if (status == 'completed' && !_finishing) {
+      _finishing = true;
+      _statusTimer?.cancel();
+      _onRideCompleted();
+    }
+  }
+
+  Future<void> _onDriverCancelled() async {
+    final app = context.read<AppProvider>();
+    await _showInfoDialog(
+      icon: Icons.cancel_rounded,
+      color: AppColors.error,
+      title: app.t('Ride cancelled', 'Safari imeghairiwa'),
+      message: app.t('The driver cancelled this ride. You can request a new one.', 'Dereva ameghairi safari hii. Unaweza kuomba nyingine.'),
+    );
+    app.setActiveRide(null);
+    await app.refreshRideHistory();
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  Future<void> _showInfoDialog({required IconData icon, required Color color, required String title, required String message}) {
+    final app = context.read<AppProvider>();
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        icon: Icon(icon, color: color, size: 52),
+        title: Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
+        content: Text(message, textAlign: TextAlign.center),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(app.t('OK', 'Sawa'))),
+        ],
+      ),
+    );
   }
 
   void _continueLifecycle() {
     if (_ride.isActive) _startSearch();
   }
 
-  void _confirmPickup() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Share your trip PIN with the driver. The driver will start the trip in the app.')),
+  // ----------------------------------------------------------------- payment ----------------------------
+  String get _defaultPayChoice {
+    final m = (_ride.paymentMethod ?? 'cash').toLowerCase();
+    if (m == 'cash') return 'cash';
+    if (m == 'wallet') return 'wallet';
+    return 'momo';
+  }
+
+  double get _amountDue => _ride.amountDue ?? (_ride.estimatedFare - (_ride.discount ?? 0)).clamp(0, double.infinity).toDouble();
+
+  Future<void> _openPaymentSheet() async {
+    if (!mounted || _paying) return;
+    final app = context.read<AppProvider>();
+    final isDark = app.isDark;
+    final accent = MapUi.accent(isDark);
+    String choice = _defaultPayChoice;
+    final phoneCtrl = TextEditingController(text: app.user?.phone ?? '');
+    String? error;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: MapUi.panelColor(isDark),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final due = _amountDue;
+        final walletOk = app.walletBalance >= due;
+        Widget option(String id, IconData icon, String title, String subtitle, {bool enabled = true}) {
+          final selected = choice == id;
+          return Opacity(
+            opacity: enabled ? 1 : 0.45,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: enabled ? () => setSheet(() => choice = id) : null,
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: selected ? accent.withValues(alpha: 0.12) : MapUi.panelSubtle(isDark),
+                  border: Border.all(color: selected ? accent : Colors.transparent, width: 1.6),
+                ),
+                child: Row(children: [
+                  Icon(icon, color: accent),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                      Text(subtitle, style: TextStyle(fontSize: 12, color: MapUi.textSecondary(isDark))),
+                    ]),
+                  ),
+                  if (selected) Icon(Icons.check_circle_rounded, color: accent),
+                ]),
+              ),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 14, 20, MediaQuery.of(ctx).viewInsets.bottom + 22),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(width: 38, height: 4, decoration: BoxDecoration(color: MapUi.textSecondary(isDark).withValues(alpha: 0.4), borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 16),
+              const Icon(Icons.flag_rounded, color: AppColors.brightGreen, size: 42),
+              const SizedBox(height: 8),
+              Text(app.t("You've reached your destination", 'Umefika unakokwenda'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 19), textAlign: TextAlign.center),
+              const SizedBox(height: 4),
+              Text(app.t('Please pay to finish your trip', 'Tafadhali lipa kumaliza safari yako'), style: TextStyle(color: MapUi.textSecondary(isDark))),
+              const SizedBox(height: 14),
+              Text(formatTzs(due), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 32)),
+              const SizedBox(height: 16),
+              option('cash', Icons.payments_rounded, app.t('Cash', 'Fedha taslimu'), app.t('Hand the cash to your driver', 'Mkabidhi dereva fedha taslimu')),
+              option('wallet', Icons.account_balance_wallet_rounded, app.t('ZenjiGO Wallet', 'Pochi ya ZenjiGO'),
+                  walletOk ? '${app.t('Balance', 'Salio')} ${formatTzs(app.walletBalance)}' : app.t('Balance too low (${formatTzs(app.walletBalance)})', 'Salio halitoshi (${formatTzs(app.walletBalance)})'),
+                  enabled: walletOk),
+              option('momo', Icons.phone_android_rounded, app.t('Mobile money', 'Pesa ya simu'), app.t('Approve the prompt on your phone', 'Thibitisha ujumbe kwenye simu yako')),
+              if (choice == 'momo')
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 6),
+                  child: TextField(
+                    controller: phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(
+                      labelText: app.t('Mobile money number', 'Namba ya pesa ya simu'),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+              if (error != null) ...[
+                const SizedBox(height: 6),
+                Text(error!, style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+              ],
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _paying
+                      ? null
+                      : () async {
+                          setSheet(() => error = null);
+                          final err = await _submitPayment(choice, phoneCtrl.text.trim());
+                          if (err != null) {
+                            setSheet(() => error = err);
+                          } else if (ctx.mounted) {
+                            Navigator.pop(ctx);
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.brightGreen,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  ),
+                  child: _paying
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                      : Text(
+                          choice == 'cash'
+                              ? app.t('I will pay cash', 'Nitalipa taslimu')
+                              : app.t('Pay ${formatTzs(due)}', 'Lipa ${formatTzs(due)}'),
+                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                        ),
+                ),
+              ),
+            ]),
+          ),
+        );
+      }),
     );
+    phoneCtrl.dispose();
+  }
+
+  /// Returns an error message, or null on success.
+  Future<String?> _submitPayment(String choice, String phone) async {
+    if (_paying) return null;
+    if (choice == 'momo' && phone.length < 9) return 'Enter a valid mobile money number.';
+    setState(() => _paying = true);
+    try {
+      final res = await RiderApi.payRide(_ride.id, method: choice, phone: choice == 'momo' ? phone : null);
+      if (!mounted) return null;
+      final status = (res['status'] ?? _ride.status).toString().toLowerCase();
+      setState(() {
+        _ride = _ride.copyWith(
+          status: status,
+          paymentMethod: choice == 'momo' ? 'momo' : choice,
+          paymentStatus: (res['payment_status'] ?? (choice == 'cash' ? 'awaiting_cash' : 'processing')).toString(),
+        );
+      });
+      context.read<AppProvider>().updateActiveRide(_ride);
+      _pollServerRide();
+      return null;
+    } catch (e) {
+      return e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      if (mounted) setState(() => _paying = false);
+    }
+  }
+
+  Future<void> _onRideCompleted() async {
+    final app = context.read<AppProvider>();
+    HapticFeedback.heavyImpact();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        icon: const Icon(Icons.check_circle_rounded, color: AppColors.brightGreen, size: 64),
+        title: Text(app.t('Payment successful', 'Malipo yamefanikiwa'), textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w900)),
+        content: Text(
+          app.t('Thank you for riding with ZenjiGO. Your trip is complete.', 'Asante kwa kusafiri na ZenjiGO. Safari yako imekamilika.'),
+          textAlign: TextAlign.center,
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(app.t('Continue', 'Endelea'))),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    await _showRatingAndComplete();
+  }
+
+  Future<void> _openChat(AppProvider app) async {
+    try {
+      final conv = await app.openRideChat(_ride.id, fallbackTitle: _ride.driver?.name);
+      if (conv == null || !mounted) return;
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailScreen(conversation: conv)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+      }
+    }
   }
 
   Future<void> _showRatingAndComplete() async {
@@ -684,11 +1000,24 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   }
 
   String _statusLabel(AppProvider app) {
+    if (_ride.awaitingPayment) {
+      switch (_ride.paymentStatus) {
+        case 'awaiting_cash':
+          return app.t('Waiting for driver to confirm cash', 'Inasubiri dereva kuthibitisha pesa');
+        case 'processing':
+          return app.t('Confirm the payment on your phone', 'Thibitisha malipo kwenye simu yako');
+        default:
+          return app.t('You have arrived · Pay now', 'Umefika · Lipa sasa');
+      }
+    }
     switch (_ride.status) {
       case 'searching':
         return app.t('Finding nearby drivers...', 'Inatafuta madereva karibu...');
       case 'accepted':
-        return app.t('Driver accepted · ETA ${_ride.etaMinutes} min', 'Dereva amekubali · ETA ${_ride.etaMinutes} dak');
+        final e = _etaMinutes;
+        return e != null
+            ? app.t('Driver is coming · $e min', 'Dereva anakuja · dak $e')
+            : app.t('Driver accepted your ride', 'Dereva amekubali safari yako');
       case 'arriving':
         return app.t('Driver is on the way', 'Dereva yuko njiani');
       case 'arrived':
@@ -699,6 +1028,10 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         return _ride.status;
     }
   }
+
+  DriverModel get _driverOrPlaceholder =>
+      _ride.driver ??
+      DriverModel(id: '', name: 'Your driver', phone: '', vehicleNumber: '', vehicleType: _ride.rideType);
 
   @override
   Widget build(BuildContext context) {
@@ -741,7 +1074,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                         onTap: () => Navigator.pop(context), // active ride stays in the provider
                       ),
                       const SizedBox(width: 10),
-                      if (_ride.tripPin != null && _ride.tripPin!.isNotEmpty)
+                      if (_ride.tripPin != null && _ride.tripPin!.isNotEmpty && !_inTrip && _ride.status != 'searching')
                         FloatingPill(
                           isDark: isDark,
                           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
@@ -836,7 +1169,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                                 child: AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 220),
                                   child: KeyedSubtree(
-                                    key: ValueKey(_noDriver ? 'nodriver' : (_ride.status == 'searching' || _ride.driver == null ? 'searching' : 'active')),
+                                    key: ValueKey(_noDriver ? 'nodriver' : (_ride.status == 'searching' ? 'searching' : 'active')),
                                     child: _noDriver
                                         ? _buildNoDriver(app)
                                         : (_ride.status == 'searching' || _ride.driver == null)
@@ -1081,9 +1414,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   }
 
   Widget _buildActivePanel(AppProvider app, Map<String, dynamic> type, bool isDark, bool compact) {
-    final driver = _ride.driver!;
+    final driver = _driverOrPlaceholder;
     final discount = _ride.discount ?? 0;
-    final fare = _ride.estimatedFare - discount;
+    final fare = _amountDue;
     final muted = MapUi.textSecondary(isDark);
     final accent = MapUi.accent(isDark);
     final eta = _etaMinutes;
@@ -1197,30 +1530,15 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             ),
           ],
         ),
-        if (_ride.status == 'arrived') ...[
+        if (!_inTrip && _ride.tripPin != null && _ride.tripPin!.isNotEmpty) ...[
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _confirmPickup,
-              icon: const Icon(Icons.check_circle_rounded),
-              label: Text(app.t('Confirm pickup · Start trip', 'Thibitisha kuchukuliwa · Anza safari')),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.brightGreen,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            app.t('Share your PIN ${_ride.tripPin} with the driver', 'Mpe dereva PIN ${_ride.tripPin}'),
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: muted),
-          ),
+          _pinCard(app, isDark, accent),
         ],
-        if (_inTrip && _remainingMeters > 0) ...[
+        if (_ride.awaitingPayment) ...[
+          const SizedBox(height: 14),
+          _paymentCard(app, isDark, accent),
+        ],
+        if (_inTrip && !_ride.awaitingPayment && _remainingMeters > 0) ...[
           const SizedBox(height: 14),
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
@@ -1247,9 +1565,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           children: [
             action(Icons.call_rounded, app.t('Call', 'Piga'), () => launchUrl(Uri.parse('tel:${driver.phone}'))),
             const SizedBox(width: 8),
-            action(Icons.chat_bubble_rounded, app.t('Chat', 'Chat'), () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
-            }),
+            action(Icons.chat_bubble_rounded, app.t('Chat', 'Chat'), () => _openChat(app)),
             const SizedBox(width: 8),
             action(Icons.share_location_rounded, app.t('Share', 'Shiriki'), () {
               final text = Uri.encodeComponent(
@@ -1282,6 +1598,111 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  /// Big OTP the rider reads out to the driver. The driver cannot start the ride without it.
+  Widget _pinCard(AppProvider app, bool isDark, Color accent) {
+    final pin = _ride.tripPin ?? '';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lock_outline_rounded, color: accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(app.t('Your ride PIN', 'PIN ya safari yako'), style: TextStyle(fontSize: 12, color: MapUi.textSecondary(isDark), fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(app.t('Share it with the driver only when you board', 'Mpe dereva unapopanda tu'),
+                    style: TextStyle(fontSize: 11.5, color: MapUi.textSecondary(isDark))),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            pin.split('').join(' '),
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 2, color: accent),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shown after the driver confirmed the destination: amount, method and status of the payment.
+  Widget _paymentCard(AppProvider app, bool isDark, Color accent) {
+    final waitingCash = _ride.paymentStatus == 'awaiting_cash';
+    final processing = _ride.paymentStatus == 'processing';
+    final waiting = waitingCash || processing;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.brightGreen.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.brightGreen.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.flag_rounded, color: AppColors.brightGreen),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  app.t("You've reached your destination", 'Umefika unakokwenda'),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              Text(formatTzs(_amountDue), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (waiting)
+            Row(
+              children: [
+                const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.4)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    waitingCash
+                        ? app.t('Hand the cash to your driver. The ride ends once they confirm.', 'Mkabidhi dereva pesa. Safari inaisha akithibitisha.')
+                        : app.t('Approve the payment prompt on your phone.', 'Thibitisha ombi la malipo kwenye simu yako.'),
+                    style: TextStyle(fontSize: 12.5, color: MapUi.textSecondary(isDark)),
+                  ),
+                ),
+              ],
+            )
+          else
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _openPaymentSheet,
+                icon: const Icon(Icons.payments_rounded),
+                label: Text(app.t('Pay now', 'Lipa sasa'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.brightGreen,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          if (waiting)
+            TextButton(
+              onPressed: _openPaymentSheet,
+              child: Text(app.t('Change payment method', 'Badilisha njia ya malipo')),
+            ),
+        ],
+      ),
     );
   }
 }

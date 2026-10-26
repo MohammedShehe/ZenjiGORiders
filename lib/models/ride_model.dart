@@ -23,6 +23,9 @@ class RideModel {
   final String? feedback;
   final double? tip;
   final String? tripPin;
+  final String paymentStatus; // not_due | pending | awaiting_cash | processing | paid
+  final bool reachedDestination;
+  final double? amountDue;
 
   RideModel({
     required this.id,
@@ -49,6 +52,9 @@ class RideModel {
     this.feedback,
     this.tip,
     this.tripPin,
+    this.paymentStatus = 'not_due',
+    this.reachedDestination = false,
+    this.amountDue,
   }) : createdAt = createdAt ?? DateTime.now();
 
   RideModel copyWith({
@@ -66,6 +72,10 @@ class RideModel {
     double? tip,
     String? tripPin,
     int? etaMinutes,
+    String? paymentStatus,
+    bool? reachedDestination,
+    double? amountDue,
+    double? estimatedFare,
     double? fromLat,
     double? fromLng,
     double? toLat,
@@ -80,7 +90,7 @@ class RideModel {
       fromLng: fromLng ?? this.fromLng,
       toLat: toLat ?? this.toLat,
       toLng: toLng ?? this.toLng,
-      estimatedFare: estimatedFare,
+      estimatedFare: estimatedFare ?? this.estimatedFare,
       finalFare: finalFare ?? this.finalFare,
       etaMinutes: etaMinutes ?? this.etaMinutes,
       status: status ?? this.status,
@@ -96,8 +106,14 @@ class RideModel {
       feedback: feedback ?? this.feedback,
       tip: tip ?? this.tip,
       tripPin: tripPin ?? this.tripPin,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      reachedDestination: reachedDestination ?? this.reachedDestination,
+      amountDue: amountDue ?? this.amountDue,
     );
   }
+
+  /// Driver reached the drop-off: the rider must now pay.
+  bool get awaitingPayment => status == 'started' && reachedDestination && paymentStatus != 'paid';
 
   bool get isActive =>
       status == 'searching' ||
@@ -120,6 +136,7 @@ class DriverModel {
   final int totalRides;
   final double lat;
   final double lng;
+  final String vehicleDescription;
 
   DriverModel({
     required this.id,
@@ -132,6 +149,7 @@ class DriverModel {
     this.totalRides = 0,
     this.lat = 0,
     this.lng = 0,
+    this.vehicleDescription = '',
   });
 
   DriverModel copyWith({double? lat, double? lng}) {
@@ -146,6 +164,7 @@ class DriverModel {
       totalRides: totalRides,
       lat: lat ?? this.lat,
       lng: lng ?? this.lng,
+      vehicleDescription: vehicleDescription,
     );
   }
 }
@@ -161,6 +180,7 @@ class ChatMessage {
   final List<String> reactions;
   final bool isDeleted;
   final bool isEdited;
+  final bool isMine;
 
   ChatMessage({
     required this.id,
@@ -173,6 +193,7 @@ class ChatMessage {
     this.reactions = const [],
     this.isDeleted = false,
     this.isEdited = false,
+    this.isMine = false,
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
@@ -184,6 +205,10 @@ class ChatConversation {
   final bool isPinned;
   final List<ChatMessage> messages;
   final DateTime lastMessageAt;
+  final String lastMessagePreview;
+  final int unreadCount;
+  final String? rideId;
+  final bool messagesLoaded;
 
   ChatConversation({
     required this.id,
@@ -193,12 +218,19 @@ class ChatConversation {
     this.isPinned = false,
     this.messages = const [],
     DateTime? lastMessageAt,
+    this.lastMessagePreview = '',
+    this.unreadCount = 0,
+    this.rideId,
+    this.messagesLoaded = false,
   }) : lastMessageAt = lastMessageAt ?? DateTime.now();
 
   ChatConversation copyWith({
     List<ChatMessage>? messages,
     DateTime? lastMessageAt,
     bool? isPinned,
+    String? lastMessagePreview,
+    int? unreadCount,
+    bool? messagesLoaded,
   }) {
     return ChatConversation(
       id: id,
@@ -208,6 +240,10 @@ class ChatConversation {
       isPinned: isPinned ?? this.isPinned,
       messages: messages ?? this.messages,
       lastMessageAt: lastMessageAt ?? this.lastMessageAt,
+      lastMessagePreview: lastMessagePreview ?? this.lastMessagePreview,
+      unreadCount: unreadCount ?? this.unreadCount,
+      rideId: rideId,
+      messagesLoaded: messagesLoaded ?? this.messagesLoaded,
     );
   }
 }

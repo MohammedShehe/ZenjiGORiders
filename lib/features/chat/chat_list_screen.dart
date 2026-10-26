@@ -31,6 +31,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       final q = query.trim().toLowerCase();
       if (q.isEmpty) return true;
       return chat.title.toLowerCase().contains(q) ||
+          chat.lastMessagePreview.toLowerCase().contains(q) ||
           chat.messages.any((m) => m.text.toLowerCase().contains(q));
     }).toList()
       ..sort((a, b) {
@@ -47,9 +48,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
             icon: const Icon(Icons.support_agent),
             onPressed: () async {
               try {
-                await RiderApi.openSupport();
-                await context.read<AppProvider>().refreshConversations();
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Support conversation refreshed.')));
+                final conv = await context.read<AppProvider>().openSupportChat();
+                if (conv != null && mounted) {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailScreen(conversation: conv)));
+                }
               } catch (e) {
                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
               }
@@ -68,12 +70,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
         ],
       ),
       body: chats.isEmpty
-          ? Center(child: Text(app.t('No chats yet', 'Hakuna mazungumzo bado')))
-          : ListView.builder(
+          ? RefreshIndicator(
+              onRefresh: () => context.read<AppProvider>().refreshConversations(),
+              child: ListView(children: [
+                SizedBox(height: MediaQuery.of(context).size.height * .3),
+                Center(child: Text(app.t('No chats yet', 'Hakuna mazungumzo bado'))),
+              ]),
+            )
+          : RefreshIndicator(
+              onRefresh: () => context.read<AppProvider>().refreshConversations(),
+              child: ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
               itemCount: chats.length,
               itemBuilder: (context, index) {
                 final chat = chats[index];
-                final last = chat.messages.isEmpty ? null : chat.messages.last;
+                final preview = chat.lastMessagePreview.isNotEmpty
+                    ? chat.lastMessagePreview
+                    : (chat.messages.isEmpty ? '' : chat.messages.last.text);
                 return Dismissible(
                   key: ValueKey(chat.id),
                   direction: chat.isSupport
@@ -98,7 +111,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       MaterialPageRoute(
                         builder: (_) => ChatDetailScreen(conversation: chat),
                       ),
-                    ),
+                    ).then((_) {
+                      if (mounted) context.read<AppProvider>().refreshConversations();
+                    }),
                     leading: CircleAvatar(
                       backgroundColor: chat.isSupport
                           ? (dark ? AppColors.aquaGreen : AppColors.oceanTeal)
@@ -121,16 +136,38 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           ),
                       ],
                     ),
-                    subtitle: Text(last?.text ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    trailing: last == null
-                        ? null
-                        : Text(
-                            timeago.format(last.timestamp, locale: app.isSwahili ? 'sw' : 'en'),
+                    subtitle: Text(
+                      preview.isEmpty ? app.t('No messages yet', 'Hakuna ujumbe bado') : preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: chat.unreadCount > 0 ? FontWeight.w700 : FontWeight.normal),
+                    ),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (preview.isNotEmpty)
+                          Text(
+                            timeago.format(chat.lastMessageAt, locale: app.isSwahili ? 'sw' : 'en'),
                             style: const TextStyle(fontSize: 11),
                           ),
+                        if (chat.unreadCount > 0) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: dark ? AppColors.aquaGreen : AppColors.oceanTeal,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text('${chat.unreadCount}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 );
               },
+            ),
             ),
     );
   }
@@ -162,6 +199,7 @@ class _ChatSearchDelegate extends SearchDelegate<String> {
     final matches = chats.where((chat) {
       if (q.isEmpty) return true;
       return chat.title.toLowerCase().contains(q) ||
+          chat.lastMessagePreview.toLowerCase().contains(q) ||
           chat.messages.any((m) => m.text.toLowerCase().contains(q));
     }).toList();
 
@@ -173,7 +211,7 @@ class _ChatSearchDelegate extends SearchDelegate<String> {
           leading: const CircleAvatar(child: Icon(Icons.chat_bubble_outline)),
           title: Text(chat.title),
           subtitle: Text(
-            chat.messages.isEmpty ? '' : chat.messages.last.text,
+            chat.lastMessagePreview.isNotEmpty ? chat.lastMessagePreview : (chat.messages.isEmpty ? '' : chat.messages.last.text),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

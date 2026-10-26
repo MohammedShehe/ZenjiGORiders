@@ -85,6 +85,8 @@ class AppProvider extends ChangeNotifier {
         await refreshAccountCollections();
         await refreshRideHistory();
         await refreshWallet();
+        refreshConversations();
+        startChatPolling();
       } catch (_) {
         _isAuthenticated = false;
         await prefs.setBool('isAuthenticated', false);
@@ -159,6 +161,8 @@ class AppProvider extends ChangeNotifier {
     await refreshAccountCollections();
     await refreshRideHistory();
     await refreshWallet();
+    refreshConversations();
+    startChatPolling();
     notifyListeners();
   }
 
@@ -171,6 +175,8 @@ class AppProvider extends ChangeNotifier {
     _user = null;
     _isAuthenticated = false;
     _activeRide = null;
+    _conversations = [];
+    stopChatPolling();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isAuthenticated', false);
     notifyListeners();
@@ -476,65 +482,164 @@ class AppProvider extends ChangeNotifier {
     await refreshAccountCollections();
   }
 
+  // ─── Chat sync ─────────────────────────────────────────────────
+  Timer? _chatTimer;
+  bool _chatBusy = false;
+
+  int get totalUnreadChats => _conversations.fold<int>(0, (sum, c) => sum + c.unreadCount);
+
+  /// Keeps the conversation list (and unread badge) fresh while the app is open.
+  void startChatPolling() {
+    _chatTimer?.cancel();
+    _chatTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (_isAuthenticated) refreshConversations();
+    });
+  }
+
+  void stopChatPolling() {
+    _chatTimer?.cancel();
+    _chatTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _chatTimer?.cancel();
+    super.dispose();
+  }
+
+  static DateTime _parseTime(dynamic v) {
+    final raw = (v ?? '').toString();
+    if (raw.isEmpty) return DateTime.now();
+    var d = DateTime.tryParse(raw);
+    if (d == null) return DateTime.now();
+    // The API stores UTC without a zone suffix.
+    if (!raw.endsWith('Z') && !raw.contains('+') && !RegExp(r'-\d\d:\d\d$').hasMatch(raw)) {
+      d = DateTime.tryParse('${raw.replaceFirst(' ', 'T')}Z') ?? d;
+    }
+    return d.toLocal();
+  }
+
   Future<void> refreshConversations() async {
+    if (_chatBusy) return;
+    _chatBusy = true;
     try {
       final rows = await RiderApi.conversations();
+      final previous = {for (final c in _conversations) c.id: c};
       _conversations = rows.whereType<Map>().map((row) {
         final m = Map<String, dynamic>.from(row);
         final id = (m['id'] ?? m['_id'] ?? m['conversationId'] ?? '').toString();
-        final last = m['lastMessage'] is Map ? Map<String, dynamic>.from(m['lastMessage']) : <String, dynamic>{};
-        final lastText = (last['text'] ?? m['lastMessageText'] ?? '').toString();
-        final messages = lastText.isEmpty ? <ChatMessage>[] : <ChatMessage>[
-          ChatMessage(
-            id: (last['id'] ?? last['_id'] ?? '').toString(),
-            senderId: (last['senderId'] ?? last['sender'] ?? '').toString(),
-            text: lastText,
-            timestamp: DateTime.tryParse((last['createdAt'] ?? last['created_at'] ?? '').toString()) ?? DateTime.now(),
-          ),
-        ];
+        // The API returns `lastMessage` as a plain string; older builds returned an object.
+        String lastText = '';
+        final lm = m['lastMessage'];
+        if (lm is Map) {
+          lastText = (lm['text'] ?? '').toString();
+        } else if (lm != null) {
+          lastText = lm.toString();
+        }
+        if (lastText.isEmpty) lastText = (m['lastMessageText'] ?? '').toString();
+        final old = previous[id];
+        final isSupport = m['isSupport'] == true || m['type'] == 'support';
         return ChatConversation(
           id: id,
-          title: (m['title'] ?? m['name'] ?? m['driverName'] ?? 'Conversation').toString(),
-          isSupport: m['isSupport'] == true || m['type'] == 'support',
-          isPinned: m['isPinned'] == true,
-          messages: messages,
-          lastMessageAt: DateTime.tryParse((m['lastMessageAt'] ?? m['updatedAt'] ?? m['updated_at'] ?? '').toString()) ?? DateTime.now(),
+          title: (m['peerName'] ?? m['title'] ?? m['name'] ?? m['driverName'] ?? 'Conversation').toString(),
+          avatarUrl: (m['peerPhotoUrl'])?.toString(),
+          isSupport: isSupport,
+          isPinned: m['isPinned'] == true || m['isPinned'] == 1,
+          // Keep already-loaded messages so opening a chat is instant.
+          messages: old?.messages ?? const [],
+          messagesLoaded: old?.messagesLoaded ?? false,
+          lastMessagePreview: lastText,
+          unreadCount: int.tryParse((m['unreadCount'] ?? 0).toString()) ?? 0,
+          rideId: m['rideId']?.toString(),
+          lastMessageAt: _parseTime(m['lastMessageAt'] ?? m['updatedAt'] ?? m['updated_at']),
         );
       }).where((c) => c.id.isNotEmpty).toList();
       notifyListeners();
     } catch (_) {
       // Keep existing conversations visible on transient API errors.
+    } finally {
+      _chatBusy = false;
     }
   }
 
-  Future<void> refreshConversationMessages(String conversationId) async {
+  Future<void> refreshConversationMessages(String conversationId, {bool markRead = true}) async {
     try {
       final rows = await RiderApi.messages(conversationId);
       final messages = rows.whereType<Map>().map((row) {
         final m = Map<String, dynamic>.from(row);
+        final mine = m['isMine'] == true;
         return ChatMessage(
           id: (m['id'] ?? m['_id'] ?? '').toString(),
-          senderId: (m['senderId'] ?? m['sender'] ?? '').toString(),
+          senderId: mine ? 'me' : (m['senderId'] ?? m['sender'] ?? 'other').toString(),
           text: (m['text'] ?? m['message'] ?? '').toString(),
-          timestamp: DateTime.tryParse((m['createdAt'] ?? m['created_at'] ?? '').toString()) ?? DateTime.now(),
+          timestamp: _parseTime(m['createdAt'] ?? m['created_at']),
+          replyToId: m['replyToId']?.toString(),
           isEdited: m['isEdited'] == true,
           isDeleted: m['isDeleted'] == true,
+          isMine: mine,
         );
-      }).toList();
+      }).where((m) => !m.isDeleted).toList();
       final idx = _conversations.indexWhere((c) => c.id == conversationId);
       if (idx >= 0) {
         final current = _conversations[idx];
-        _conversations[idx] = current.copyWith(messages: messages);
+        _conversations[idx] = current.copyWith(
+          messages: messages,
+          messagesLoaded: true,
+          lastMessagePreview: messages.isNotEmpty ? messages.last.text : current.lastMessagePreview,
+          unreadCount: markRead ? 0 : current.unreadCount,
+          lastMessageAt: messages.isNotEmpty ? messages.last.timestamp : current.lastMessageAt,
+        );
         notifyListeners();
       }
-      await RiderApi.markRead(conversationId);
+      if (markRead) {
+        try {
+          await RiderApi.markRead(conversationId);
+        } catch (_) {}
+      }
     } catch (_) {}
   }
 
-  Future<void> sendChatMessage(String conversationId, String text) async {
-    await RiderApi.sendMessage(conversationId, text);
+  Future<void> sendChatMessage(String conversationId, String text, {String? replyToId}) async {
+    await RiderApi.sendMessage(conversationId, text, replyToId: replyToId);
     await refreshConversationMessages(conversationId);
+    unawaited(refreshConversations());
+  }
+
+  Future<void> editChatMessage(String conversationId, String messageId, String text) async {
+    await RiderApi.editMessage(conversationId, messageId, text);
+    await refreshConversationMessages(conversationId);
+  }
+
+  Future<void> deleteChatMessages(String conversationId, Iterable<String> messageIds) async {
+    for (final id in messageIds) {
+      await RiderApi.deleteMessage(conversationId, id);
+    }
+    await refreshConversationMessages(conversationId);
+    unawaited(refreshConversations());
+  }
+
+  /// Opens the support thread and returns it ready to display.
+  Future<ChatConversation?> openSupportChat() async {
+    final r = await RiderApi.openSupport();
+    final id = (r['conversationId'] ?? r['id'] ?? '').toString();
+    if (id.isEmpty) return null;
     await refreshConversations();
+    final i = _conversations.indexWhere((c) => c.id == id);
+    return i >= 0 ? _conversations[i] : null;
+  }
+
+  /// Opens (creating if needed) the chat for a ride and returns it ready to display.
+  Future<ChatConversation?> openRideChat(String rideId, {String? fallbackTitle}) async {
+    final id = await RiderApi.rideConversation(rideId);
+    if (id.isEmpty) return null;
+    await refreshConversations();
+    var i = _conversations.indexWhere((c) => c.id == id);
+    if (i < 0) {
+      _conversations.insert(0, ChatConversation(id: id, title: fallbackTitle ?? 'Driver', rideId: rideId));
+      notifyListeners();
+      i = 0;
+    }
+    return _conversations[i];
   }
 
   // ─── Chat ──────────────────────────────────────────────────────

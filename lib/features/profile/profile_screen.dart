@@ -41,14 +41,28 @@ class ProfileScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const SizedBox(height: 20),
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundColor: Colors.white24,
-                        child: Text(
-                          user?.fullName.isNotEmpty == true ? user!.fullName[0].toUpperCase() : 'U',
-                          style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
-                      ),
+                      Builder(builder: (_) {
+                        final photo = user?.photoUrl;
+                        final hasPhoto = photo != null && photo.trim().isNotEmpty;
+                        final initial = user?.fullName.isNotEmpty == true ? user!.fullName[0].toUpperCase() : 'U';
+                        // Show the uploaded profile picture; fall back to the initial if it is missing or fails to load.
+                        return Container(
+                          padding: const EdgeInsets.all(2.5),
+                          decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white38),
+                          child: CircleAvatar(
+                            radius: 40,
+                            backgroundColor: Colors.white24,
+                            backgroundImage: hasPhoto ? NetworkImage(photo) : null,
+                            onBackgroundImageError: hasPhoto ? (_, __) {} : null,
+                            child: hasPhoto
+                                ? null
+                                : Text(
+                                    initial,
+                                    style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold),
+                                  ),
+                          ),
+                        );
+                      }),
                       const SizedBox(height: 10),
                       Text(user?.fullName ?? 'Guest', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600)),
                       Text(user?.phone ?? '', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13)),
