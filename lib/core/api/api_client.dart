@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'friendly_errors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
@@ -7,6 +9,12 @@ class ApiClient {
     'ZENJIGO_API_URL',
     defaultValue: 'https://zenjigo-backend.onrender.com/api/v1',
   );
+
+  /// Hard cap so a bad network can never leave a screen spinning forever.
+  static const Duration requestTimeout = Duration(seconds: 25);
+
+  /// Optional hook: called once when the session can no longer be refreshed (e.g. to route to login).
+  static void Function()? onSessionExpired;
 
   static Future<String?> _access() async {
     final p = await SharedPreferences.getInstance();
@@ -37,26 +45,40 @@ class ApiClient {
 
     Future<http.Response> send() async {
       final uri = Uri.parse('$baseUrl$path');
+      final Future<http.Response> future;
       switch (method.toUpperCase()) {
         case 'GET':
-          return http.get(uri, headers: headers);
+          future = http.get(uri, headers: headers);
+          break;
         case 'PATCH':
-          return http.patch(uri, headers: headers, body: jsonEncode(body ?? {}));
+          future = http.patch(uri, headers: headers, body: jsonEncode(body ?? {}));
+          break;
         case 'PUT':
-          return http.put(uri, headers: headers, body: jsonEncode(body ?? {}));
+          future = http.put(uri, headers: headers, body: jsonEncode(body ?? {}));
+          break;
         case 'DELETE':
-          return http.delete(uri, headers: headers, body: body != null ? jsonEncode(body) : null);
+          future = http.delete(uri, headers: headers, body: body != null ? jsonEncode(body) : null);
+          break;
         default:
-          return http.post(uri, headers: headers, body: jsonEncode(body ?? {}));
+          future = http.post(uri, headers: headers, body: jsonEncode(body ?? {}));
+      }
+      return future.timeout(requestTimeout);
+    }
+
+    Future<http.Response> guardedSend() async {
+      try {
+        return await send();
+      } catch (e) {
+        throw Exception(FriendlyErrors.message(e));
       }
     }
 
-    var response = await send();
+    var response = await guardedSend();
     if (response.statusCode == 401 && auth) {
       if (await _tryRefresh()) {
         final token = await _access();
         if (token != null) headers['Authorization'] = 'Bearer $token';
-        response = await send();
+        response = await guardedSend();
       }
     }
 
@@ -72,31 +94,47 @@ class ApiClient {
         response.statusCode >= 300 ||
         decoded['success'] == false) {
       final message = decoded['message'];
-      throw Exception(message == null
-          ? 'Request failed (${response.statusCode})'
-          : message.toString());
+      throw Exception(FriendlyErrors.message(message == null
+          ? 'HTTP ${response.statusCode}'
+          : message.toString()));
     }
     return decoded;
   }
 
-  static Future<bool> _tryRefresh() async {
+  static Future<bool>? _refreshInFlight;
+
+  /// Many screens poll at once; when the access token expires they all get a 401 together.
+  /// Refresh tokens rotate, so only ONE refresh may run — the rest wait for its result.
+  static Future<bool> _tryRefresh() {
+    return _refreshInFlight ??= _doRefresh().whenComplete(() => _refreshInFlight = null);
+  }
+
+  static Future<bool> _doRefresh() async {
     try {
       final rt = await _refresh();
       if (rt == null || rt.isEmpty) return false;
-      final res = await http.post(
-        Uri.parse('$baseUrl/auth/refresh'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'refreshToken': rt}),
-      );
+      final res = await http
+          .post(
+            Uri.parse('$baseUrl/auth/refresh'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'refreshToken': rt}),
+          )
+          .timeout(requestTimeout);
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        // Definitive: the refresh token is no longer valid.
+        await clearTokens();
+        onSessionExpired?.call();
+        return false;
+      }
       if (res.statusCode < 200 || res.statusCode >= 300) return false;
       final decoded = jsonDecode(res.body);
       if (decoded is! Map || decoded['success'] == false) return false;
       final payload = decoded['data'] ?? decoded;
       if (payload is! Map) return false;
-      final data = Map<String, dynamic>.from(payload);
-      await saveTokens(data);
+      await saveTokens(Map<String, dynamic>.from(payload));
       return true;
     } catch (_) {
+      // Network blip: keep the tokens, the next request will try again.
       return false;
     }
   }

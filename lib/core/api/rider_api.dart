@@ -177,7 +177,7 @@ class RiderApi {
       'amount': amount,
       'paymentMethod': paymentMethod,
       if (phone != null && phone.isNotEmpty) 'phone': phone,
-      'provider': 'paygrid',
+      'provider': 'snippe',
     });
     return Map<String, dynamic>.from(d is Map ? d : {});
   }

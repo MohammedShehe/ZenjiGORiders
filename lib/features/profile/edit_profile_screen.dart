@@ -89,10 +89,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final req = http.MultipartRequest('POST', uri);
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
     req.files.add(await http.MultipartFile.fromPath('file', _localPhoto!.path));
-    final streamed = await req.send();
+    final streamed = await req.send().timeout(const Duration(seconds: 90));
     final body = await streamed.stream.bytesToString();
     if (streamed.statusCode < 200 || streamed.statusCode >= 300) {
-      throw Exception('Photo upload failed');
+      throw Exception('We could not upload your photo. Check your connection and try again.');
     }
     final decoded = jsonDecode(body);
     final data = decoded is Map ? (decoded['data'] ?? decoded) : {};

@@ -356,8 +356,11 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
 
   static bool _truthy(dynamic v) => v == true || v == 1 || v == '1' || v == 'true';
 
+  bool _pollBusy = false;
+
   Future<void> _pollServerRide() async {
-    if (!mounted || _ride.id == 'pending' || _finishing) return;
+    if (!mounted || _ride.id == 'pending' || _finishing || _pollBusy) return;
+    _pollBusy = true;
     try {
       final payload = await RiderApi.getRide(_ride.id);
       final raw = payload['ride'] is Map ? Map<String, dynamic>.from(payload['ride']) : payload;
@@ -445,6 +448,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       _handleTransitions(prevStatus, prevReached);
     } catch (_) {
       // Keep the current screen responsive during transient network failures; retry next poll.
+    } finally {
+      _pollBusy = false;
     }
   }
 
