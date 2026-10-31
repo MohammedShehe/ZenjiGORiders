@@ -666,40 +666,61 @@ class AppProvider extends ChangeNotifier {
   }
 
   // ─── Wallet / Transactions ─────────────────────────────────────
-  Future<bool> topUpWalletLive({
+  /// Starts a top-up and returns what the UI needs to continue (throws with a readable message).
+  Future<TopUpStart> startWalletTopUp({
     required double amount,
     required String paymentMethod,
     String? phone,
+    String? cardBrand,
+    String? cardLast4,
+    String? cardHolder,
   }) async {
-    try {
-      final apiMethod = paymentMethod == 'bank' ? 'card' : paymentMethod;
-      final d = await RiderApi.topUp(amount: amount, paymentMethod: apiMethod, phone: phone);
-      final bal = double.tryParse((d['balance'] ?? d['walletBalance'] ?? '').toString());
-      if (bal != null) updateWallet(bal);
-      final paymentId = (d['paymentId'] ?? d['id'] ?? (d['data'] is Map ? d['data']['paymentId'] : null) ?? '').toString();
-      if (paymentId.isNotEmpty) unawaited(_pollTopUpStatus(paymentId));
-      await refreshWallet();
-      return true;
-    } catch (_) {
-      return false;
-    }
+    final apiMethod = paymentMethod == 'bank' ? 'card' : paymentMethod;
+    final d = await RiderApi.topUp(
+      amount: amount,
+      paymentMethod: apiMethod,
+      phone: phone,
+      cardBrand: cardBrand,
+      cardLast4: cardLast4,
+      cardHolder: cardHolder,
+    );
+    final inner = d['data'] is Map ? Map<String, dynamic>.from(d['data'] as Map) : d;
+    final paymentId = (inner['paymentId'] ?? inner['id'] ?? '').toString();
+    final url = (inner['paymentUrl'] ?? inner['payment_url'] ?? '').toString();
+    return TopUpStart(
+      paymentId: paymentId,
+      paymentUrl: url.isEmpty ? null : url,
+      message: (inner['message'] ?? '').toString(),
+    );
   }
 
-  Future<void> _pollTopUpStatus(String paymentId) async {
-    for (var attempt = 0; attempt < 12; attempt++) {
-      await Future<void>.delayed(const Duration(seconds: 3));
+  /// Polls the backend until the payment provider confirms (webhook) or [timeout] passes.
+  /// Returns 'success', 'failed' or 'pending'. The wallet is credited by the server only.
+  Future<String> waitForTopUp(
+    String paymentId, {
+    Duration timeout = const Duration(minutes: 3),
+    bool Function()? shouldStop,
+  }) async {
+    final end = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(end)) {
+      if (shouldStop != null && shouldStop()) return 'pending';
       try {
-        final statusData = await RiderApi.topUpStatus(paymentId);
-        final status = (statusData['status'] ?? '').toString().toLowerCase();
+        final st = await RiderApi.topUpStatus(paymentId);
+        final status = (st['status'] ?? (st['data'] is Map ? st['data']['status'] : '') ?? '').toString().toLowerCase();
         if (status == 'success' || status == 'completed' || status == 'paid') {
           await refreshWallet();
-          return;
+          return 'success';
         }
-        if (status == 'failed' || status == 'cancelled') return;
+        if (status == 'failed' || status == 'cancelled' || status == 'canceled' || status == 'expired') {
+          return 'failed';
+        }
       } catch (_) {
-        // Keep polling while the payment provider settles asynchronously.
+        // Keep polling while the provider settles asynchronously.
       }
+      await Future<void>.delayed(const Duration(seconds: 3));
     }
+    await refreshWallet();
+    return 'pending';
   }
 
   bool hasSufficientWallet(double amount) {
@@ -707,4 +728,13 @@ class AppProvider extends ChangeNotifier {
   }
 
   String t(String en, String sw) => isSwahili ? sw : en;
+}
+
+
+/// Result of starting a wallet top-up.
+class TopUpStart {
+  final String paymentId;
+  final String? paymentUrl;
+  final String message;
+  const TopUpStart({required this.paymentId, this.paymentUrl, this.message = ''});
 }

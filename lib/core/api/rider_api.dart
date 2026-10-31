@@ -168,18 +168,39 @@ class RiderApi {
     return List<dynamic>.from(d is List ? d : (d is Map && d['transactions'] is List ? d['transactions'] : (d is Map && d['items'] is List ? d['items'] : [])));
   }
 
+  /// Starts a wallet top-up.
+  /// - momo: [phone] receives a USSD prompt.
+  /// - card: only NON-sensitive facts ([cardBrand], [cardLast4], [cardHolder]) are sent. The card
+  ///   number / expiry / CVV never leave the device; they are entered on the secure checkout page
+  ///   returned as `paymentUrl` (PCI-DSS: the app must not transmit raw card data to our API).
   static Future<Map<String, dynamic>> topUp({
     required double amount,
     required String paymentMethod,
     String? phone,
+    String? cardBrand,
+    String? cardLast4,
+    String? cardHolder,
   }) async {
+    final isCard = paymentMethod == 'card' || paymentMethod == 'bank';
     final d = await ApiClient.data('POST', '/rider/wallet/topup', body: {
       'amount': amount,
-      'paymentMethod': paymentMethod,
+      'paymentMethod': isCard ? 'card' : paymentMethod,
       if (phone != null && phone.isNotEmpty) 'phone': phone,
+      if (isCard)
+        'card': {
+          if (cardBrand != null) 'brand': cardBrand,
+          if (cardLast4 != null) 'last4': cardLast4,
+          if (cardHolder != null) 'holder': cardHolder,
+        },
       'provider': 'snippe',
     });
     return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
+  static Future<void> cancelTopUp(String id) async {
+    try {
+      await ApiClient.data('POST', '/rider/wallet/topup/$id/cancel');
+    } catch (_) {}
   }
 
   static Future<Map<String, dynamic>> topUpStatus(String id) async {

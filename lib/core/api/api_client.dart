@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiClient {
   static const String baseUrl = String.fromEnvironment(
     'ZENJIGO_API_URL',
-    defaultValue: 'https://zenjigo-backend.onrender.com/api/v1',
+    defaultValue: 'https://api.zenjigo.online/api/v1',
   );
 
   /// Hard cap so a bad network can never leave a screen spinning forever.
