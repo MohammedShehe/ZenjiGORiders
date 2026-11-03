@@ -26,6 +26,7 @@ class RideModel {
   final String paymentStatus; // not_due | pending | awaiting_cash | processing | paid
   final bool reachedDestination;
   final double? amountDue;
+  final bool canForceClose; // trip stuck because the driver vanished: rider may end it
 
   RideModel({
     required this.id,
@@ -55,6 +56,7 @@ class RideModel {
     this.paymentStatus = 'not_due',
     this.reachedDestination = false,
     this.amountDue,
+    this.canForceClose = false,
   }) : createdAt = createdAt ?? DateTime.now();
 
   RideModel copyWith({
@@ -80,6 +82,8 @@ class RideModel {
     double? fromLng,
     double? toLat,
     double? toLng,
+    bool? canForceClose,
+    bool clearDriver = false,
   }) {
     return RideModel(
       id: id,
@@ -94,7 +98,7 @@ class RideModel {
       finalFare: finalFare ?? this.finalFare,
       etaMinutes: etaMinutes ?? this.etaMinutes,
       status: status ?? this.status,
-      driver: driver ?? this.driver,
+      driver: clearDriver ? null : (driver ?? this.driver),
       createdAt: createdAt,
       startedAt: startedAt ?? this.startedAt,
       completedAt: completedAt ?? this.completedAt,
@@ -109,6 +113,59 @@ class RideModel {
       paymentStatus: paymentStatus ?? this.paymentStatus,
       reachedDestination: reachedDestination ?? this.reachedDestination,
       amountDue: amountDue ?? this.amountDue,
+      canForceClose: canForceClose ?? this.canForceClose,
+    );
+  }
+
+  static double _num(dynamic v, [double def = 0]) => double.tryParse((v ?? '').toString()) ?? def;
+  static bool _flag(dynamic v) => v == true || v == 1 || v == '1' || v == 'true';
+
+  /// Builds a ride from the API's ride JSON (used to resume an unfinished ride after a restart).
+  factory RideModel.fromServer(Map<String, dynamic> m) {
+    DriverModel? driver;
+    if (m['driver'] is Map) {
+      final d = Map<String, dynamic>.from(m['driver'] as Map);
+      driver = DriverModel(
+        id: (d['id'] ?? '').toString(),
+        name: (d['fullName'] ?? d['name'] ?? 'Driver').toString(),
+        phone: (d['phone'] ?? '').toString(),
+        photoUrl: (d['photoUrl'] ?? '').toString(),
+        vehicleNumber: (d['plateNumber'] ?? '').toString(),
+        vehicleType: (d['vehicleType'] ?? m['ride_type'] ?? 'boda').toString(),
+        rating: _num(d['rating']),
+        totalRides: int.tryParse((d['totalRides'] ?? 0).toString()) ?? 0,
+        lat: _num(d['lat']),
+        lng: _num(d['lng']),
+        vehicleDescription: [d['vehicleColor'], d['vehicleMake'], d['vehicleModel']]
+            .where((e) => e != null && e.toString().trim().isNotEmpty)
+            .join(' '),
+      );
+    }
+    final pin = (m['trip_pin'] ?? m['tripPin'])?.toString();
+    return RideModel(
+      id: (m['id'] ?? m['ride_code'] ?? '').toString(),
+      rideType: (m['ride_type'] ?? m['rideType'] ?? 'boda').toString(),
+      fromAddress: (m['pickup_address'] ?? '').toString(),
+      toAddress: (m['destination_address'] ?? '').toString(),
+      fromLat: _num(m['pickup_lat']),
+      fromLng: _num(m['pickup_lng']),
+      toLat: _num(m['destination_lat']),
+      toLng: _num(m['destination_lng']),
+      estimatedFare: _num(m['estimated_fare']),
+      finalFare: m['final_fare'] == null ? null : _num(m['final_fare']),
+      etaMinutes: int.tryParse((m['estimated_duration_min'] ?? 0).toString()) ?? 0,
+      status: (m['status'] ?? 'searching').toString().toLowerCase(),
+      driver: driver,
+      createdAt: DateTime.tryParse((m['created_at'] ?? '').toString())?.toLocal(),
+      paymentMethod: (m['payment_method'] ?? 'cash').toString(),
+      cancelReason: m['cancel_reason']?.toString(),
+      promoCode: m['promo_code']?.toString(),
+      discount: m['discount'] == null ? null : _num(m['discount']),
+      tripPin: (pin != null && pin.isNotEmpty) ? pin : null,
+      paymentStatus: (m['payment_status'] ?? 'not_due').toString(),
+      reachedDestination: _flag(m['reached_destination']),
+      amountDue: m['amount_due'] == null ? null : _num(m['amount_due']),
+      canForceClose: _flag(m['can_force_close']),
     );
   }
 

@@ -88,6 +88,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // No point polling drivers while the app is in the background.
     if (state == AppLifecycleState.resumed) {
+      context.read<AppProvider>().refreshActiveRide();
       if (_nearbyTimer == null && context.read<AppProvider>().currentLat != 0) {
         _refreshNearbyDrivers();
         _nearbyTimer = Timer.periodic(const Duration(seconds: 15), (_) => _refreshNearbyDrivers());
@@ -125,7 +126,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       app.refreshAccountCollections();
       _loadCurrentLocation();
+      _resumeUnfinishedRide();
     });
+  }
+
+  bool _resumeOpen = false;
+
+  /// If the server says this rider still has an unfinished ride (app was closed / reinstalled / second phone),
+  /// take them straight back to it. Otherwise offer the rating for a trip that finished while the app was closed.
+  Future<void> _resumeUnfinishedRide() async {
+    if (_resumeOpen || !mounted) return;
+    _resumeOpen = true;
+    try {
+      final app = context.read<AppProvider>();
+      final active = await app.refreshActiveRide();
+      if (!mounted) return;
+      if (active != null && active.isActive) {
+        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => RideDetailsScreen(existingRide: active)));
+        if (mounted) _resetAfterRide();
+        return;
+      }
+      final unrated = await app.unratedRide();
+      if (!mounted || unrated == null) return;
+      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => RideDetailsScreen(existingRide: unrated)));
+      if (mounted) _resetAfterRide();
+    } finally {
+      _resumeOpen = false;
+    }
   }
 
   Future<void> _loadCurrentLocation() async {
@@ -507,6 +534,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         );
         return;
       }
+    }
+    // Never let a rider start a booking that the server will refuse: send them to their unfinished ride instead.
+    final unfinished = await app.refreshActiveRide();
+    if (!mounted) return;
+    if (unfinished != null && unfinished.isActive) {
+      final open = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(app.t('You have a ride in progress', 'Una safari inayoendelea')),
+          content: Text(app.t(
+            'Finish or cancel your current ride before booking a new one.',
+            'Maliza au ghairi safari yako ya sasa kabla ya kuomba nyingine.',
+          )),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(app.t('Not now', 'Baadaye'))),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(app.t('Open my ride', 'Fungua safari yangu'))),
+          ],
+        ),
+      );
+      if (open == true && mounted) {
+        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => RideDetailsScreen(existingRide: unfinished)));
+        if (mounted) _resetAfterRide();
+      }
+      return;
     }
     if (app.currentLat == 0 || app.currentLng == 0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('A real pickup location is required. Enable location services and retry.')));

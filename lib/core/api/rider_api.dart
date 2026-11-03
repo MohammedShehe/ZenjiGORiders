@@ -101,6 +101,20 @@ class RiderApi {
     return Map<String, dynamic>.from(d is Map ? d : {});
   }
 
+  /// The rider's current unfinished ride (searching … started), or null. Used to resume after a restart.
+  static Future<Map<String, dynamic>?> activeRide() async {
+    final d = await ApiClient.data('GET', '/rider/rides/active');
+    final r = d is Map ? d['ride'] : null;
+    return r is Map ? Map<String, dynamic>.from(r) : null;
+  }
+
+  /// A ride completed in the last 24h that was never rated (so the rating prompt survives an app restart).
+  static Future<Map<String, dynamic>?> unratedRide() async {
+    final d = await ApiClient.data('GET', '/rider/rides/unrated');
+    final r = d is Map ? d['ride'] : null;
+    return r is Map ? Map<String, dynamic>.from(r) : null;
+  }
+
   static Future<Map<String, dynamic>> getRide(String id) async {
     final d = await ApiClient.data('GET', '/rider/rides/$id');
     return Map<String, dynamic>.from(d is Map ? d : {});

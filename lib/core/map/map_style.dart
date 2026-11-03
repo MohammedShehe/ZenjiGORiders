@@ -2,52 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import '../theme/app_colors.dart';
 
-/// Clean, low-noise Google Maps styles (light + dark) so routes, pins and vehicles stand out.
+/// ZenjiGO "Zanzibar lagoon" map look: warm sand land, turquoise water, coral highways (light) and a
+/// midnight-lagoon dark theme. Low-noise by design so routes, pins and vehicles stand out.
 /// Note: styles are ignored when a cloud-based Map ID is configured for the map.
 class MapStyles {
-  static const String light = '''
-[
-  {"elementType":"geometry","stylers":[{"color":"#f2f5f5"}]},
-  {"elementType":"labels.icon","stylers":[{"visibility":"off"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#5b6f74"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#ffffff"},{"weight":3}]},
-  {"featureType":"administrative.land_parcel","stylers":[{"visibility":"off"}]},
-  {"featureType":"administrative.neighborhood","stylers":[{"visibility":"off"}]},
-  {"featureType":"poi","stylers":[{"visibility":"off"}]},
-  {"featureType":"poi.park","elementType":"geometry","stylers":[{"visibility":"on"},{"color":"#d7eede"}]},
-  {"featureType":"poi.park","elementType":"labels","stylers":[{"visibility":"off"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#ffffff"}]},
-  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#e1e7e9"}]},
-  {"featureType":"road.local","elementType":"labels","stylers":[{"visibility":"simplified"}]},
-  {"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#ffffff"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#fbe9c8"}]},
-  {"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#f0d9ad"}]},
-  {"featureType":"transit","stylers":[{"visibility":"off"}]},
-  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#bde5ee"}]},
-  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#6fa3b0"}]}
-]''';
+  static const String light = '''[{"elementType":"geometry","stylers":[{"color":"#f6efe2"}]},{"elementType":"labels.icon","stylers":[{"visibility":"off"}]},{"elementType":"labels.text.fill","stylers":[{"color":"#6b5a45"}]},{"elementType":"labels.text.stroke","stylers":[{"color":"#fffaf0"},{"weight":3}]},{"featureType":"administrative.land_parcel","stylers":[{"visibility":"off"}]},{"featureType":"administrative.neighborhood","stylers":[{"visibility":"off"}]},{"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#0f6f7c"}]},{"featureType":"landscape.natural","elementType":"geometry","stylers":[{"color":"#efe5cf"}]},{"featureType":"landscape.man_made","elementType":"geometry","stylers":[{"color":"#f1e7d4"}]},{"featureType":"poi","stylers":[{"visibility":"off"}]},{"featureType":"poi.park","elementType":"geometry","stylers":[{"visibility":"on"},{"color":"#cfe7c9"}]},{"featureType":"poi.park","elementType":"labels","stylers":[{"visibility":"off"}]},{"featureType":"poi.attraction","elementType":"labels.text","stylers":[{"visibility":"on"}]},{"featureType":"road","elementType":"geometry","stylers":[{"color":"#ffffff"}]},{"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#eadfc6"}]},{"featureType":"road.local","elementType":"labels","stylers":[{"visibility":"simplified"}]},{"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#fffdf8"}]},{"featureType":"road.arterial","elementType":"geometry.stroke","stylers":[{"color":"#e6d7b8"}]},{"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#ffd9a3"}]},{"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#f2b66b"}]},{"featureType":"road.highway","elementType":"labels.text.fill","stylers":[{"color":"#9a6420"}]},{"featureType":"transit","stylers":[{"visibility":"off"}]},{"featureType":"water","elementType":"geometry","stylers":[{"color":"#7fd3dc"}]},{"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#2a7d8b"}]},{"featureType":"water","elementType":"labels.text.stroke","stylers":[{"color":"#d9f4f6"}]}]''';
 
-  static const String dark = '''
-[
-  {"elementType":"geometry","stylers":[{"color":"#0d2a37"}]},
-  {"elementType":"labels.icon","stylers":[{"visibility":"off"}]},
-  {"elementType":"labels.text.fill","stylers":[{"color":"#8fb1b6"}]},
-  {"elementType":"labels.text.stroke","stylers":[{"color":"#0a2430"},{"weight":3}]},
-  {"featureType":"administrative.land_parcel","stylers":[{"visibility":"off"}]},
-  {"featureType":"administrative.neighborhood","stylers":[{"visibility":"off"}]},
-  {"featureType":"poi","stylers":[{"visibility":"off"}]},
-  {"featureType":"poi.park","elementType":"geometry","stylers":[{"visibility":"on"},{"color":"#12392f"}]},
-  {"featureType":"poi.park","elementType":"labels","stylers":[{"visibility":"off"}]},
-  {"featureType":"road","elementType":"geometry","stylers":[{"color":"#1c4252"}]},
-  {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#143342"}]},
-  {"featureType":"road.local","elementType":"labels","stylers":[{"visibility":"simplified"}]},
-  {"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#235063"}]},
-  {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#2c6074"}]},
-  {"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#1c4252"}]},
-  {"featureType":"transit","stylers":[{"visibility":"off"}]},
-  {"featureType":"water","elementType":"geometry","stylers":[{"color":"#06202c"}]},
-  {"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#4f7f8a"}]}
-]''';
+  static const String dark = '''[{"elementType":"geometry","stylers":[{"color":"#0f202b"}]},{"elementType":"labels.icon","stylers":[{"visibility":"off"}]},{"elementType":"labels.text.fill","stylers":[{"color":"#93b9bf"}]},{"elementType":"labels.text.stroke","stylers":[{"color":"#08161e"},{"weight":3}]},{"featureType":"administrative.land_parcel","stylers":[{"visibility":"off"}]},{"featureType":"administrative.neighborhood","stylers":[{"visibility":"off"}]},{"featureType":"administrative.locality","elementType":"labels.text.fill","stylers":[{"color":"#5fd8cc"}]},{"featureType":"landscape.natural","elementType":"geometry","stylers":[{"color":"#12303a"}]},{"featureType":"poi","stylers":[{"visibility":"off"}]},{"featureType":"poi.park","elementType":"geometry","stylers":[{"visibility":"on"},{"color":"#103a33"}]},{"featureType":"poi.park","elementType":"labels","stylers":[{"visibility":"off"}]},{"featureType":"road","elementType":"geometry","stylers":[{"color":"#1b3a48"}]},{"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#112a35"}]},{"featureType":"road.local","elementType":"labels","stylers":[{"visibility":"simplified"}]},{"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#24505f"}]},{"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#7c5b2b"}]},{"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#4a3519"}]},{"featureType":"road.highway","elementType":"labels.text.fill","stylers":[{"color":"#d9ad66"}]},{"featureType":"transit","stylers":[{"visibility":"off"}]},{"featureType":"water","elementType":"geometry","stylers":[{"color":"#0a4655"}]},{"featureType":"water","elementType":"labels.text.fill","stylers":[{"color":"#5aa7b4"}]},{"featureType":"water","elementType":"labels.text.stroke","stylers":[{"color":"#06222b"}]}]''';
 
   static String forBrightness(bool isDark) => isDark ? dark : light;
 }

@@ -16,6 +16,7 @@ import '../../core/utils/money.dart';
 import '../../core/utils/directions_service.dart';
 import '../../core/utils/tanzania_time.dart';
 import '../../models/ride_model.dart';
+import '../../core/api/api_client.dart';
 import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
 import '../chat/chat_detail_screen.dart';
@@ -103,7 +104,12 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     if (widget.existingRide != null) {
       _ride = widget.existingRide!;
       _loadTripRoute();
-      if (_ride.isActive) _continueLifecycle();
+      if (_ride.isActive) {
+        _continueLifecycle();
+      } else if (_ride.status == 'completed') {
+        _finishing = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _onRideCompleted(); });
+      }
     } else {
       // Temporary placeholder until API returns
       _ride = RideModel(
@@ -331,6 +337,20 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       _startSearch();
     } catch (e) {
       if (!mounted) return;
+      // The rider already has an unfinished ride: take them to it instead of a dead end.
+      if (e is ApiException && e.code == 'ACTIVE_RIDE_EXISTS') {
+        final existing = await app.refreshActiveRide();
+        if (!mounted) return;
+        if (existing != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(app.t('You already have a ride in progress. Here it is.', 'Tayari una safari inayoendelea. Hii hapa.'))),
+          );
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => RideDetailsScreen(existingRide: existing)),
+          );
+          return;
+        }
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
@@ -418,6 +438,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         amountDue: due,
         estimatedFare: (fare != null && fare > 0) ? fare : null,
         paymentMethod: method,
+        cancelReason: raw['cancel_reason']?.toString(),
+        canForceClose: _truthy(raw['can_force_close']),
+        clearDriver: status == 'searching',
       );
 
       // Live driver position (latest GPS ping stored by the driver app).
@@ -457,6 +480,17 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   void _handleTransitions(String prevStatus, bool prevReached) {
     final app = context.read<AppProvider>();
     final status = _ride.status;
+
+    if (status == 'searching' && prevStatus != 'searching') {
+      // The driver dropped out: the request stays alive and we are matching a new driver.
+      _arrivedShown = false;
+      _payPromptShown = false;
+      _driver.clear();
+      HapticFeedback.mediumImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(app.t('Your driver is no longer available. Finding you another driver…', 'Dereva wako hapatikani tena. Tunakutafutia dereva mwingine…'))),
+      );
+    }
 
     if (prevStatus == 'searching' && status != 'searching' && status != 'cancelled') {
       HapticFeedback.mediumImpact();
@@ -505,7 +539,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       icon: Icons.cancel_rounded,
       color: AppColors.error,
       title: app.t('Ride cancelled', 'Safari imeghairiwa'),
-      message: app.t('The driver cancelled this ride. You can request a new one.', 'Dereva ameghairi safari hii. Unaweza kuomba nyingine.'),
+      message: (_ride.cancelReason != null && _ride.cancelReason!.trim().isNotEmpty)
+          ? '${_ride.cancelReason}\n${app.t('You can request a new ride.', 'Unaweza kuomba safari nyingine.')}'
+          : app.t('This ride was cancelled. You can request a new one.', 'Safari hii imeghairiwa. Unaweza kuomba nyingine.'),
     );
     app.setActiveRide(null);
     await app.refreshRideHistory();
@@ -932,6 +968,34 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         SnackBar(content: Text(app.t('Ride cancelled successfully.', 'Safari imeghairiwa kikamilifu.'))),
       );
       Navigator.pop(context);
+    }
+  }
+
+  /// The trip is stuck because the driver's phone went silent. The rider may close it (no charge) and book again.
+  Future<void> _forceCloseTrip(AppProvider app) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(app.t('End this trip?', 'Maliza safari hii?')),
+        content: Text(app.t(
+          'We have lost contact with your driver. You will not be charged for this trip, and you can request a new ride straight away.',
+          'Tumepoteza mawasiliano na dereva wako. Hutatozwa kwa safari hii, na unaweza kuomba safari nyingine mara moja.',
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(app.t('Keep waiting', 'Endelea kusubiri'))),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(app.t('End trip', 'Maliza safari'))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    _statusTimer?.cancel();
+    try {
+      await app.cancelActiveRide(reason: 'Driver unreachable');
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+      _startSearch();
     }
   }
 
@@ -1583,6 +1647,14 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             }),
           ],
         ),
+        if (_inTrip && _ride.canForceClose && !_ride.reachedDestination) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => _forceCloseTrip(app),
+            icon: const Icon(Icons.report_gmailerrorred_rounded, color: AppColors.error),
+            label: Text(app.t('Driver unreachable — end this trip', 'Dereva hapatikani — maliza safari hii'), style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.w700)),
+          ),
+        ],
         if (!_inTrip) ...[
           const SizedBox(height: 6),
           Row(

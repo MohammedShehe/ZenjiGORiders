@@ -85,6 +85,7 @@ class AppProvider extends ChangeNotifier {
         await refreshAccountCollections();
         await refreshRideHistory();
         await refreshWallet();
+        await refreshActiveRide();
         refreshConversations();
         startChatPolling();
       } catch (_) {
@@ -161,6 +162,7 @@ class AppProvider extends ChangeNotifier {
     await refreshAccountCollections();
     await refreshRideHistory();
     await refreshWallet();
+    await refreshActiveRide();
     refreshConversations();
     startChatPolling();
     notifyListeners();
@@ -203,6 +205,35 @@ class AppProvider extends ChangeNotifier {
   void updateActiveRide(RideModel ride) {
     _activeRide = ride;
     notifyListeners();
+  }
+
+  /// Asks the server for the rider's unfinished ride. Restores it after an app restart / reinstall / new device,
+  /// and clears a local ride the server has already finished. Returns the active ride (or null).
+  Future<RideModel?> refreshActiveRide() async {
+    if (!_isAuthenticated) return null;
+    try {
+      final raw = await RiderApi.activeRide();
+      if (raw == null) {
+        if (_activeRide != null && _activeRide!.id != 'pending') _activeRide = null;
+        notifyListeners();
+        return null;
+      }
+      _activeRide = RideModel.fromServer(raw);
+      notifyListeners();
+      return _activeRide;
+    } catch (_) {
+      return _activeRide; // offline: keep whatever we know
+    }
+  }
+
+  /// A just-finished ride that still needs a rating (after the app was closed during payment).
+  Future<RideModel?> unratedRide() async {
+    try {
+      final raw = await RiderApi.unratedRide();
+      return raw == null ? null : RideModel.fromServer(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<RideModel> createRide({

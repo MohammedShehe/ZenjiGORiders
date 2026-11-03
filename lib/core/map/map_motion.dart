@@ -58,6 +58,12 @@ class MovingPoint {
     });
   }
 
+  /// Forget the vehicle (e.g. the driver dropped out and a new one is being matched).
+  void clear() {
+    _timer?.cancel();
+    frame.value = null;
+  }
+
   void dispose() {
     _timer?.cancel();
     frame.dispose();

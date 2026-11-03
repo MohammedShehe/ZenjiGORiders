@@ -4,6 +4,18 @@ import 'package:http/http.dart' as http;
 import 'friendly_errors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Error thrown for any non-2xx API answer. Keeps the machine-readable `code` (e.g. ACTIVE_RIDE_EXISTS) so screens can
+/// react intelligently instead of just showing text. `toString()` stays compatible with the old `Exception: msg` format.
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  final Map<String, dynamic> details;
+  const ApiException(this.message, {this.statusCode, this.details = const {}});
+  String? get code => details['code']?.toString();
+  @override
+  String toString() => 'Exception: $message';
+}
+
 class ApiClient {
   static const String baseUrl = String.fromEnvironment(
     'ZENJIGO_API_URL',
@@ -94,9 +106,11 @@ class ApiClient {
         response.statusCode >= 300 ||
         decoded['success'] == false) {
       final message = decoded['message'];
-      throw Exception(FriendlyErrors.message(message == null
-          ? 'HTTP ${response.statusCode}'
-          : message.toString()));
+      throw ApiException(
+        FriendlyErrors.message(message == null ? 'HTTP ${response.statusCode}' : message.toString()),
+        statusCode: response.statusCode,
+        details: decoded['details'] is Map ? Map<String, dynamic>.from(decoded['details'] as Map) : const {},
+      );
     }
     return decoded;
   }
