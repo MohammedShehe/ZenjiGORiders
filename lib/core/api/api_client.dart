@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'friendly_errors.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../storage/secure_token_store.dart';
 
 /// Error thrown for any non-2xx API answer. Keeps the machine-readable `code` (e.g. ACTIVE_RIDE_EXISTS) so screens can
 /// react intelligently instead of just showing text. `toString()` stays compatible with the old `Exception: msg` format.
@@ -29,13 +29,11 @@ class ApiClient {
   static void Function()? onSessionExpired;
 
   static Future<String?> _access() async {
-    final p = await SharedPreferences.getInstance();
-    return p.getString('accessToken');
+    return SecureTokenStore.accessToken;
   }
 
   static Future<String?> _refresh() async {
-    final p = await SharedPreferences.getInstance();
-    return p.getString('refreshToken');
+    return SecureTokenStore.refreshToken;
   }
 
   static Future<Map<String, dynamic>> request(
@@ -154,7 +152,6 @@ class ApiClient {
   }
 
   static Future<void> saveTokens(Map<String, dynamic> data) async {
-    final p = await SharedPreferences.getInstance();
     final nested = data['tokens'] is Map
         ? Map<String, dynamic>.from(data['tokens'] as Map)
         : <String, dynamic>{};
@@ -162,14 +159,11 @@ class ApiClient {
         nested['accessToken'] ?? nested['access'] ?? nested['access_token'];
     final refresh = data['refreshToken'] ?? data['refresh'] ?? data['refresh_token'] ??
         nested['refreshToken'] ?? nested['refresh'] ?? nested['refresh_token'];
-    if (access != null) await p.setString('accessToken', access.toString());
-    if (refresh != null) await p.setString('refreshToken', refresh.toString());
+    await SecureTokenStore.save(access: access?.toString(), refresh: refresh?.toString());
   }
 
   static Future<void> clearTokens() async {
-    final p = await SharedPreferences.getInstance();
-    await p.remove('accessToken');
-    await p.remove('refreshToken');
+    await SecureTokenStore.clear();
   }
 
   static Future<dynamic> data(

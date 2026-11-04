@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/storage/secure_token_store.dart';
 import 'dart:convert';
 import '../../providers/app_provider.dart';
 import '../../core/api/rider_api.dart';
@@ -83,8 +83,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   Future<String?> _uploadPhoto() async {
     if (_localPhoto == null) return _photoUrl;
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('accessToken');
+    final token = await SecureTokenStore.accessToken;
     final uri = Uri.parse('${ApiClient.baseUrl}/upload');
     final req = http.MultipartRequest('POST', uri);
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
