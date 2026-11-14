@@ -1,3 +1,6 @@
+import java.util.Properties
+import org.gradle.api.GradleException
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -5,6 +8,24 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
 }
+
+// Release signing credentials are kept outside source control in android/key.properties.
+val releaseSigningProperties = Properties()
+val releaseSigningPropertiesFile = rootProject.file("key.properties")
+val hasReleaseSigningProperties = releaseSigningPropertiesFile.exists()
+if (hasReleaseSigningProperties) {
+    releaseSigningPropertiesFile.inputStream().use { releaseSigningProperties.load(it) }
+}
+
+val releaseStoreFile = releaseSigningProperties.getProperty("storeFile")
+val releaseStorePassword = releaseSigningProperties.getProperty("storePassword")
+val releaseKeyAlias = releaseSigningProperties.getProperty("keyAlias")
+val releaseKeyPassword = releaseSigningProperties.getProperty("keyPassword")
+val hasCompleteReleaseSigning = hasReleaseSigningProperties &&
+    !releaseStoreFile.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
 
 android {
     namespace = "com.zenjigo.riders"
@@ -22,21 +43,50 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.zenjigo.riders"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = maxOf(23, flutter.minSdkVersion) // flutter_secure_storage requires >= 23
+        minSdk = maxOf(23, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasCompleteReleaseSigning) {
+                storeFile = rootProject.file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+        getByName("release") {
+            // Never fall back to the debug certificate for a Play Store release.
+            signingConfig = if (hasCompleteReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
+        }
+    }
+}
+
+// Fail clearly instead of silently producing an unsigned or debug-signed Play upload.
+tasks.configureEach {
+    if (name == "bundleRelease" || name == "assembleRelease") {
+        doFirst {
+            if (!hasCompleteReleaseSigning) {
+                throw GradleException(
+                    "Release signing is not configured. Create android/key.properties and " +
+                        "android/upload-keystore.jks using RELEASE_SIGNING_README.md, then rebuild."
+                )
+            }
+            val keystore = rootProject.file(releaseStoreFile!!)
+            if (!keystore.isFile) {
+                throw GradleException("Release keystore not found: ${keystore.absolutePath}")
+            }
         }
     }
 }
@@ -45,10 +95,7 @@ flutter {
     source = "../.."
 }
 
-
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-
     implementation("com.google.j2objc:j2objc-annotations:3.0.0")
-
 }
