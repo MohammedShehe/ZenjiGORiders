@@ -30,7 +30,7 @@ class WalletSetupScreen extends StatefulWidget {
 
 class _WalletSetupScreenState extends State<WalletSetupScreen> {
   double _amount = 5000;
-  String _method = 'momo'; // momo | card
+  String _method = 'momo'; // PayGrid wallet top-ups use mobile money
   _Stage _stage = _Stage.form;
   bool _loading = false;
   bool _stopPolling = false;
@@ -84,7 +84,7 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
       final defCard = cards.where((m) => m.isDefault).toList();
       _savedCardId = (defCard.isNotEmpty ? defCard.first : cards.first).id;
       // A rider whose default method is a card lands on the card tab.
-      if (defMomo.isEmpty && momo.isEmpty) setState(() => _method = 'card');
+
     }
     setState(() {});
   }
@@ -328,13 +328,9 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
         const SizedBox(height: 22),
         Text(app.t('Pay using', 'Lipa kwa kutumia'), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
         const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: _methodTile('momo', Icons.phone_android_rounded, app.t('Mobile Money', 'Pesa ya simu'), accent)),
-          const SizedBox(width: 12),
-          Expanded(child: _methodTile('card', Icons.credit_card_rounded, app.t('Card / Bank', 'Kadi / Benki'), accent)),
-        ]),
+        _methodTile('momo', Icons.phone_android_rounded, app.t('Mobile Money', 'Pesa ya simu'), accent),
         const SizedBox(height: 18),
-        if (_method == 'momo') ..._momoSection(app, muted) else ..._cardSection(app, accent, muted),
+        ..._momoSection(app, muted),
         const SizedBox(height: 16),
         _summary(app),
         const SizedBox(height: 16),

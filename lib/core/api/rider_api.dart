@@ -195,10 +195,10 @@ class RiderApi {
     String? cardLast4,
     String? cardHolder,
   }) async {
-    final isCard = paymentMethod == 'card' || paymentMethod == 'bank';
+    final isCard = false;
     final d = await ApiClient.data('POST', '/rider/wallet/topup', body: {
       'amount': amount,
-      'paymentMethod': isCard ? 'card' : paymentMethod,
+      'paymentMethod': 'momo',
       if (phone != null && phone.isNotEmpty) 'phone': phone,
       if (isCard)
         'card': {
@@ -206,7 +206,7 @@ class RiderApi {
           if (cardLast4 != null) 'last4': cardLast4,
           if (cardHolder != null) 'holder': cardHolder,
         },
-      'provider': 'snippe',
+      'provider': 'paygrid',
     });
     return Map<String, dynamic>.from(d is Map ? d : {});
   }
