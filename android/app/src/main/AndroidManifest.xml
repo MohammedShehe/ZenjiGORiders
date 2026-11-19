@@ -16,7 +16,7 @@
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="zenjigo_rides" />
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyBX93zeEULXrhxlvkNefmoFcYDGizvvSpU" />
+            android:value="${MAPS_API_KEY}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

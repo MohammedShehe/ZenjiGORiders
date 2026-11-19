@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_google_places_sdk/flutter_google_places_sdk.dart' as places;
 import '../../core/map/map_markers.dart';
 import '../../core/map/map_style.dart';
@@ -14,6 +15,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/directions_service.dart';
+import '../../core/utils/location_access.dart';
 import '../../core/api/rider_api.dart';
 import '../../providers/app_provider.dart';
 import '../../models/user_model.dart';
@@ -67,8 +69,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   MapMarkerSet? _markerSet;
   double _topH = 0;
   double _sheetH = 0;
-  // Override at build time with: --dart-define=GOOGLE_MAPS_API_KEY=YOUR_KEY
-  static const String _placesApiKey = DirectionsService.defaultKey;
+  static String get _placesApiKey => DirectionsService.defaultKey;
   late final places.FlutterGooglePlacesSdk _placesClient =
       places.FlutterGooglePlacesSdk(_placesApiKey, useNewApi: true);
 
@@ -159,16 +160,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (_locationLoading) return;
     setState(() => _locationLoading = true);
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        throw Exception('Enable location services to use your real pickup location.');
-      }
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        throw Exception('Location permission is required to set your pickup.');
-      }
-      final pos = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high));
-      if (!mounted) return;
+      final pos = await requestPickupPosition(context);
+      if (!mounted || pos == null) return;
       var pickupAddress = 'Current Location (${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)})';
       try {
         // Use the platform geocoder; this avoids calling the Geocoding REST API
@@ -278,22 +271,115 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         });
       }
       if (!mounted || requestId != _placesRequest) return;
+      if (normalized.isEmpty) {
+        final fallback = await _searchPlacesFallback(q);
+        if (!mounted || requestId != _placesRequest) return;
+        setState(() => _placeSuggestions = fallback);
+        return;
+      }
       setState(() => _placeSuggestions = normalized);
     } catch (e) {
-      if (mounted && requestId == _placesRequest) {
-        setState(() => _placeSuggestions = []);
-        final raw = e.toString().replaceFirst('Exception: ', '');
-        final clean = (raw.contains('permission') || raw.contains('403') || raw.contains('Autocomplet'))
-            ? 'Places search unavailable. Enable Places API (New) for this API key in Google Cloud Console.'
-            : (raw.length > 120 ? '${raw.substring(0, 120)}…' : raw);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(clean)));
+      final fallback = await _searchPlacesFallback(q);
+      if (!mounted || requestId != _placesRequest) return;
+      if (fallback.isNotEmpty) {
+        setState(() => _placeSuggestions = fallback);
+        return;
       }
+      final raw = e.toString();
+      final clean = raw.contains('API_ERROR') || raw.contains('403') || raw.contains('PERMISSION_DENIED')
+          ? 'Place search is unavailable right now. Try again in a moment.'
+          : raw.replaceFirst('Exception: ', '').replaceFirst('PlatformException', 'Search failed');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(clean.length > 140 ? '${clean.substring(0, 140)}…' : clean)));
     } finally {
       if (mounted && requestId == _placesRequest) setState(() => _placesLoading = false);
     }
   }
 
+  Future<List<Map<String, dynamic>>> _searchPlacesFallback(String query) async {
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+        'q': query,
+        'format': 'jsonv2',
+        'limit': '6',
+        'countrycodes': 'tz',
+      });
+      final res = await http.get(uri, headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'ZenjiGORiders/1.0 (com.zenjigo.riders)',
+      }).timeout(const Duration(seconds: 8));
+      if (res.statusCode < 200 || res.statusCode >= 300) return [];
+      final decoded = jsonDecode(res.body);
+      if (decoded is! List) return [];
+      final results = <Map<String, dynamic>>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final lat = double.tryParse((item['lat'] ?? '').toString());
+        final lng = double.tryParse((item['lon'] ?? '').toString());
+        final name = (item['name'] ?? item['display_name'] ?? '').toString().trim();
+        final display = (item['display_name'] ?? name).toString().trim();
+        if (lat == null || lng == null || display.isEmpty) continue;
+        results.add({
+          'place_id': 'osm:${item['place_id'] ?? display}',
+          'description': display,
+          'lat': lat,
+          'lng': lng,
+          'structured_formatting': {
+            'main_text': name.isEmpty ? display.split(',').first.trim() : name,
+            'secondary_text': display,
+          },
+        });
+      }
+      return results;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _commitPlace({
+    required double lat,
+    required double lng,
+    required String address,
+  }) async {
+    if (!mounted) return;
+    final app = context.read<AppProvider>();
+    setState(() {
+      if (_searchingPickup) {
+        _fromCtrl.text = address;
+        app.setCurrentLocation(lat: lat, lng: lng, address: address);
+      } else {
+        _toCtrl.text = address;
+        _toLat = lat;
+        _toLng = lng;
+      }
+      _placeSuggestions = [];
+      _placesLoading = false;
+      _estimatedFare = null;
+      _eta = null;
+      _fares = {};
+      _clearRouteState();
+    });
+    FocusScope.of(context).unfocus();
+    final hasPickup = context.read<AppProvider>().currentLat != 0;
+    final hasDest = _toLat != null && _toLng != null;
+    if (hasPickup && hasDest) {
+      await _loadAllQuotes();
+    } else {
+      await _updateRoadRoute();
+    }
+  }
+
   Future<void> _selectPlace(Map<String, dynamic> place) async {
+    final presetLat = double.tryParse((place['lat'] ?? '').toString());
+    final presetLng = double.tryParse((place['lng'] ?? '').toString());
+    if (presetLat != null && presetLng != null) {
+      final main = (place['structured_formatting'] is Map ? (place['structured_formatting']['main_text'] ?? '') : '').toString();
+      await _commitPlace(
+        lat: presetLat,
+        lng: presetLng,
+        address: (place['description'] ?? main).toString(),
+      );
+      return;
+    }
     final placeId = (place['place_id'] ?? '').toString();
     if (placeId.isEmpty) return;
     setState(() { _placesLoading = true; _placeSuggestions = []; });
@@ -328,31 +414,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final address = suggestedAddress.isNotEmpty
           ? suggestedAddress
           : (place['description']?.toString() ?? result.address ?? '');
-      final app = context.read<AppProvider>();
-      setState(() {
-        if (_searchingPickup) {
-          _fromCtrl.text = address;
-          app.setCurrentLocation(lat: lat, lng: lng, address: address);
-        } else {
-          _toCtrl.text = address;
-          _toLat = lat;
-          _toLng = lng;
-        }
-        _placeSuggestions = [];
-        _estimatedFare = null;
-        _eta = null;
-        _fares = {};
-        _clearRouteState();
-      });
-      FocusScope.of(context).unfocus();
-      // Quotes + route whenever BOTH pickup and destination are known (any order)
-      final hasPickup = context.read<AppProvider>().currentLat != 0;
-      final hasDest = _toLat != null && _toLng != null;
-      if (hasPickup && hasDest) {
-        await _loadAllQuotes(); // also refreshes road route
-      } else {
-        await _updateRoadRoute();
-      }
+      await _commitPlace(lat: lat, lng: lng, address: address);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
     } finally {

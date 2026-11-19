@@ -5,8 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/loading_button.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:geolocator/geolocator.dart';
+import '../../core/utils/location_access.dart';
 import '../../providers/app_provider.dart';
 import '../auth/login_screen.dart';
 
@@ -31,24 +30,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _requestLocation() async {
     try {
-      final status = await Permission.locationWhenInUse.request();
-      if (!status.isGranted && !status.isLimited) {
-        if (mounted) {
-          setState(() => _locationGranted = false);
-          context.read<AppProvider>().setLocationGranted(false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permission is required to set a real pickup location.')),
-          );
-        }
+      final position = await requestPickupPosition(context);
+      if (!mounted) return;
+      if (position == null) {
+        setState(() => _locationGranted = false);
+        context.read<AppProvider>().setLocationGranted(false);
         return;
       }
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        throw Exception('Enable location services to continue.');
-      }
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-      );
-      if (!mounted) return;
       setState(() => _locationGranted = true);
       context.read<AppProvider>().setLocationGranted(true);
       context.read<AppProvider>().setCurrentLocation(
@@ -74,14 +62,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       );
     } else {
       if (!_locationGranted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(context.read<AppProvider>().t(
-              'Please enable location to continue',
-              'Tafadhali washa eneo ili kuendelea',
-            )),
-          ),
-        );
+        _requestLocation();
         return;
       }
       context.read<AppProvider>().completeOnboarding();

@@ -27,6 +27,15 @@ val hasCompleteReleaseSigning = hasReleaseSigningProperties &&
     !releaseKeyAlias.isNullOrBlank() &&
     !releaseKeyPassword.isNullOrBlank()
 
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+val mapsApiKey = localProperties.getProperty("MAPS_API_KEY")
+    ?: System.getenv("GOOGLE_MAPS_API_KEY_ANDROID")
+    ?: ""
+
 android {
     namespace = "com.zenjigo.riders"
     compileSdk = flutter.compileSdkVersion
@@ -48,6 +57,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     signingConfigs {

@@ -90,11 +90,11 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() => _loading = true);
     try {
-      await RiderApi.sendOtp(phone, email: email);
+      await RiderApi.sendOtp(phone: phone, email: email);
       if (!mounted) return;
       setState(() { _otpSent = true; _countdown = 60; });
       _startCountdown();
-      _snack(context.read<AppProvider>().t('Verification code sent to your email', 'Nambari ya uthibitisho imetumwa kwenye barua pepe yako'));
+      _snack(context.read<AppProvider>().t('Verification code sent by SMS', 'Nambari ya uthibitisho imetumwa kwa SMS'));
     } catch (e) {
       if (mounted) _snack(_errorText(e));
     } finally {
@@ -135,8 +135,8 @@ class _SignupScreenState extends State<SignupScreen> {
       // Match the website registration contract: profile details are submitted
       // with OTP verification, and account creation happens only after OTP succeeds.
       final data = await RiderApi.verifyOtp(
-        phone,
         code,
+        phone: phone,
         email: email,
         fullName: _nameCtrl.text.trim(),
         island: _islandCtrl.text.trim(),

@@ -2,29 +2,31 @@ import 'api_client.dart';
 
 class RiderApi {
   /* -------------------- Auth -------------------- */
-  static Future<void> sendOtp(
-    String phone, {
-    required String email,
-  }) async {
-    // The website only needs the request to succeed; its response fields
-    // (target/maskedEmail) are optional and must not be force-cast.
+  static Future<void> sendOtp({String? phone, String? email}) async {
+    final trimmedPhone = phone?.trim() ?? '';
+    final trimmedEmail = email?.trim().toLowerCase() ?? '';
+    if (trimmedPhone.isEmpty && trimmedEmail.isEmpty) {
+      throw Exception('Enter a phone number or an email address.');
+    }
     await ApiClient.data('POST', '/auth/rider/send-otp', body: {
-      'phone': phone.toString().trim(),
-      'email': email.trim().toLowerCase(),
+      if (trimmedPhone.isNotEmpty) 'phone': trimmedPhone,
+      if (trimmedEmail.isNotEmpty) 'email': trimmedEmail,
     }, auth: false);
   }
 
   static Future<Map<String, dynamic>> verifyOtp(
-    String phone,
     String code, {
-    required String email,
+    String? phone,
+    String? email,
     String? fullName,
     String? island,
     String? region,
   }) async {
+    final trimmedPhone = phone?.trim() ?? '';
+    final trimmedEmail = email?.trim().toLowerCase() ?? '';
     final d = await ApiClient.data('POST', '/auth/rider/verify-otp', body: {
-      'phone': phone,
-      'email': email.trim().toLowerCase(),
+      if (trimmedPhone.isNotEmpty) 'phone': trimmedPhone,
+      if (trimmedEmail.isNotEmpty) 'email': trimmedEmail,
       'code': code.toString().trim(),
       if (fullName != null && fullName.isNotEmpty) 'fullName': fullName.trim(),
       if (island != null && island.trim().isNotEmpty) 'island': island.trim(),

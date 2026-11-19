@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_google_places_sdk/flutter_google_places_sdk.dart' as places;
 
@@ -24,10 +25,16 @@ class PlacesAutocompleteField extends StatefulWidget {
     this.apiKey,
   });
 
-  static const String defaultKey = String.fromEnvironment(
-    'GOOGLE_MAPS_API_KEY',
-    defaultValue: 'AIzaSyBX93zeEULXrhxlvkNefmoFcYDGizvvSpU',
-  );
+  static const String androidKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY_ANDROID');
+  static const String iosKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY_IOS');
+
+  static String get defaultKey {
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS)) {
+      return iosKey;
+    }
+    return androidKey;
+  }
 
   @override
   State<PlacesAutocompleteField> createState() => _PlacesAutocompleteFieldState();

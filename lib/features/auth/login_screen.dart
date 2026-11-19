@@ -26,6 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _otpController = TextEditingController();
   String _countryCode = '+255';
+  bool _usePhone = true;
   bool _otpSent = false;
   bool _loading = false;
   int _countdown = 0;
@@ -61,20 +62,44 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  String? _phoneNumber() {
+    final local = _phoneController.text.trim().replaceAll(RegExp(r'\D'), '');
+    if (local.length < 7) return null;
+    final national = local.startsWith('0') ? local.substring(1) : local;
+    if (national.length < 7) return null;
+    return '$_countryCode$national';
+  }
+
   Future<void> _sendOtp() async {
+    final app = context.read<AppProvider>();
     final email = _emailController.text.trim().toLowerCase();
-    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
-      _showSnack(context.read<AppProvider>().t('Enter a valid email address', 'Ingiza barua pepe sahihi'));
+    final phone = _phoneNumber();
+    if (_usePhone && phone == null) {
+      _showSnack(app.t('Enter a valid phone number', 'Ingiza nambari sahihi ya simu'));
+      return;
+    }
+    if (!_usePhone && !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      _showSnack(app.t('Enter a valid email address', 'Ingiza barua pepe sahihi'));
       return;
     }
     setState(() => _loading = true);
     try {
-      final local = _phoneController.text.trim().replaceAll(RegExp(r'\D'), '');
-      final phone = '$_countryCode${local.startsWith('0') ? local.substring(1) : local}';
-      await RiderApi.sendOtp(phone, email: email);
-      if (!mounted) return; setState((){_otpSent=true;_countdown=60;}); _startCountdown();
-      _showSnack(context.read<AppProvider>().t('OTP sent successfully','OTP imetumwa kwa mafanikio'));
-    } catch(e) { if(mounted) _showSnack(e.toString().replaceFirst('Exception: ','')); } finally { if(mounted) setState(()=>_loading=false); }
+      if (_usePhone) {
+        await RiderApi.sendOtp(phone: phone);
+      } else {
+        await RiderApi.sendOtp(email: email);
+      }
+      if (!mounted) return;
+      setState(() { _otpSent = true; _countdown = 60; });
+      _startCountdown();
+      _showSnack(_usePhone
+          ? app.t('Verification code sent by SMS', 'Nambari ya uthibitisho imetumwa kwa SMS')
+          : app.t('Verification code sent to your email', 'Nambari ya uthibitisho imetumwa kwenye barua pepe yako'));
+    } catch (e) {
+      if (mounted) _showSnack(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   void _startCountdown() {
@@ -90,9 +115,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_otpController.text.trim().length != 6) { _showSnack(context.read<AppProvider>().t('Enter the 6-digit OTP', 'Ingiza OTP ya tarakimu 6')); return; }
     setState(() => _loading = true);
     try {
-      final local = _phoneController.text.trim().replaceAll(RegExp(r'\D'), '');
-      final phone = '$_countryCode${local.startsWith('0') ? local.substring(1) : local}';
-      final data = await RiderApi.verifyOtp(phone, _otpController.text.trim(), email: _emailController.text.trim().toLowerCase());
+      final data = await RiderApi.verifyOtp(
+        _otpController.text.trim(),
+        phone: _usePhone ? _phoneNumber() : null,
+        email: _usePhone ? null : _emailController.text.trim().toLowerCase(),
+      );
       await ApiClient.saveTokens(data);
       final user=UserModel.fromJson(Map<String,dynamic>.from(data['user']??{})); await context.read<AppProvider>().login(user);
       await PushService.instance.init();
@@ -192,6 +219,51 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _loginMethodSwitch(AppProvider app, bool isDark) {
+    Widget option(String label, bool selected, VoidCallback onTap) {
+      return Expanded(
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: selected
+                  ? (isDark ? AppColors.aquaGreen : AppColors.oceanTeal)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: selected
+                    ? AppColors.white
+                    : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.lightCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? AppColors.darkCard : Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          option(app.t('Phone', 'Simu'), _usePhone, () => setState(() => _usePhone = true)),
+          option(app.t('Email', 'Barua pepe'), !_usePhone, () => setState(() => _usePhone = false)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppProvider>();
@@ -224,34 +296,35 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 8),
               Text(
                 _otpSent
-                    ? app.t(
-                        'Enter the verification code sent to ${_emailController.text}',
-                        'Ingiza nambari ya uthibitisho iliyotumwa kwa ${_emailController.text}',
-                      )
-                    : app.t(
-                        'Sign in with your email to continue',
-                        'Ingia kwa barua pepe kuendelea',
-                      ),
+                    ? (_usePhone
+                        ? app.t(
+                            'Enter the verification code sent by SMS',
+                            'Ingiza nambari ya uthibitisho iliyotumwa kwa SMS',
+                          )
+                        : app.t(
+                            'Enter the verification code sent to your email',
+                            'Ingiza nambari ya uthibitisho iliyotumwa kwenye barua pepe yako',
+                          ))
+                    : (_usePhone
+                        ? app.t(
+                            'Sign in with your phone number',
+                            'Ingia kwa nambari ya simu',
+                          )
+                        : app.t(
+                            'Sign in with your email',
+                            'Ingia kwa barua pepe',
+                          )),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,
                   color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
                 ),
               ),
-              const SizedBox(height: 36),
+              const SizedBox(height: 28),
               if (!_otpSent) ...[
-                TextField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  autofillHints: const [AutofillHints.email],
-                  decoration: InputDecoration(
-                    hintText: app.t('Email address', 'Barua pepe'),
-                    prefixIcon: const Icon(Icons.email_outlined, size: 20),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                // Phone input (optional, matching the web login form)
+                _loginMethodSwitch(app, isDark),
+                const SizedBox(height: 18),
+                if (_usePhone)
                 Row(
                   children: [
                     GestureDetector(
@@ -287,7 +360,18 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ],
-                ).animate().fadeIn(delay: 250.ms).slideY(begin: 0.1, end: 0),
+                )
+                else
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.email],
+                  decoration: InputDecoration(
+                    hintText: app.t('Email address', 'Barua pepe'),
+                    prefixIcon: const Icon(Icons.email_outlined, size: 20),
+                  ),
+                ),
                 const SizedBox(height: 28),
                 LoadingButton(
                   text: app.t('Send OTP', 'Tuma OTP'),
@@ -350,7 +434,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     _otpSent = false;
                     _otpController.clear();
                   }),
-                  child: Text(app.t('Change number', 'Badilisha nambari')),
+                  child: Text(_usePhone
+                      ? app.t('Change number', 'Badilisha nambari')
+                      : app.t('Change email', 'Badilisha barua pepe')),
                 ),
               ],
               const SizedBox(height: 32),

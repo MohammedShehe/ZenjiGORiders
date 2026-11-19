@@ -39,6 +39,10 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Local map keys. Never commit these.
+ios/Flutter/Secrets.xcconfig
+dart_defines.json
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
