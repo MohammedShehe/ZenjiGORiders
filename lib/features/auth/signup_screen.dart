@@ -559,11 +559,32 @@ class _SignupScreenState extends State<SignupScreen> {
                 selectedColor: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
               ),
               enableActiveFill: true,
+              onCompleted: (_) { if (!_loading) _verifyAndNext(); },
               onChanged: (_) {},
             ),
-            if (_countdown > 0)
-              Text(app.t('Resend in $_countdown s', 'Tuma tena baada ya $_countdown s'),
-                  style: TextStyle(color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary, fontSize: 13)),
+            Text(
+              app.t('We sent a 6-digit code by SMS to $_countryCode ${_phoneCtrl.text.trim()}',
+                  'Tumetuma nambari ya tarakimu 6 kwa SMS kwenda $_countryCode ${_phoneCtrl.text.trim()}'),
+              style: TextStyle(color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                if (_countdown > 0)
+                  Text(app.t('Resend in $_countdown s', 'Tuma tena baada ya $_countdown s'),
+                      style: TextStyle(color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary, fontSize: 13))
+                else
+                  TextButton(
+                    onPressed: _loading ? null : () { _otpCtrl.clear(); _sendOtp(); },
+                    child: Text(app.t('Resend code', 'Tuma nambari tena')),
+                  ),
+                const Spacer(),
+                TextButton(
+                  onPressed: _loading ? null : () => setState(() { _otpSent = false; _otpCtrl.clear(); _countdownTimer?.cancel(); _countdown = 0; }),
+                  child: Text(app.t('Change number', 'Badilisha nambari')),
+                ),
+              ],
+            ),
           ],
           const SizedBox(height: 28),
           LoadingButton(

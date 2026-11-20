@@ -55,17 +55,10 @@ class RouteResult {
 class DirectionsService {
   DirectionsService._();
 
-  static const String androidKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY_ANDROID');
-  static const String iosKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY_IOS');
-
-  /// Android and iOS keys are passed at build time with `--dart-define-from-file=dart_defines.json`.
-  static String get defaultKey {
-    if (!kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS)) {
-      return iosKey;
-    }
-    return androidKey;
-  }
+  static const String defaultKey = String.fromEnvironment(
+    'GOOGLE_MAPS_API_KEY',
+    defaultValue: 'AIzaSyBEK72L5OoeRUS9uZsETgfirTcZWQkwfyY',
+  );
 
   static final Map<String, RouteResult> _cache = {};
   static final Map<String, Future<RouteResult>> _inFlight = {};

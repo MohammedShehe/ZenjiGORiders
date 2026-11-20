@@ -98,6 +98,87 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return (data['url'] ?? data['secure_url'] ?? data['path'] ?? '').toString();
   }
 
+  /// Changing the phone number needs a code sent by SMS to the NEW number.
+  Future<void> _changePhone() async {
+    final newPhone = TextEditingController(text: '+255');
+    final code = TextEditingController();
+    bool sent = false;
+    bool busy = false;
+    String? error;
+    final changed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Change phone number'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: newPhone,
+                enabled: !sent,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'New phone number', border: OutlineInputBorder(), hintText: '+255 7XX XXX XXX'),
+              ),
+              if (sent) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: code,
+                  keyboardType: TextInputType.number,
+                  maxLength: 8,
+                  autofillHints: const [AutofillHints.oneTimeCode],
+                  decoration: const InputDecoration(labelText: 'SMS code', counterText: '', border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 4),
+                const Text('We sent a code by SMS to the new number.', style: TextStyle(fontSize: 12)),
+              ],
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text(error!, style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: busy ? null : () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: busy
+                  ? null
+                  : () async {
+                      setD(() { busy = true; error = null; });
+                      try {
+                        if (!sent) {
+                          await RiderApi.sendPhoneChangeOtp(newPhone.text);
+                          setD(() => sent = true);
+                        } else {
+                          final data = await RiderApi.verifyPhoneChangeOtp(newPhone.text, code.text);
+                          if (data.isNotEmpty) {
+                            try {
+                              final user = UserModel.fromJson(Map<String, dynamic>.from(data));
+                              if (mounted) await context.read<AppProvider>().login(user);
+                            } catch (_) {}
+                          }
+                          if (ctx.mounted) Navigator.pop(ctx, true);
+                        }
+                      } catch (e) {
+                        setD(() => error = e.toString().replaceFirst('Exception: ', ''));
+                      } finally {
+                        setD(() => busy = false);
+                      }
+                    },
+              child: Text(sent ? 'Verify & save' : 'Send code'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (changed == true && mounted) {
+      final u = context.read<AppProvider>().user;
+      setState(() => phone.text = u?.phone ?? newPhone.text.trim());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Phone number updated')));
+    }
+  }
+
   Future<void> _sendEmailOtp() async {
     final mail = email.text.trim().toLowerCase();
     if (mail.isEmpty || !mail.contains('@')) {
@@ -255,8 +336,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: phone,
-            enabled: false,
-            decoration: const InputDecoration(labelText: 'Phone', border: OutlineInputBorder(), helperText: 'Phone cannot be changed here'),
+            readOnly: true,
+            onTap: _changePhone,
+            decoration: InputDecoration(
+              labelText: 'Phone',
+              border: const OutlineInputBorder(),
+              helperText: 'Changing your number needs an SMS code',
+              suffixIcon: TextButton(onPressed: _changePhone, child: const Text('Change')),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(

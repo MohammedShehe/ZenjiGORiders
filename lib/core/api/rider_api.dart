@@ -35,6 +35,19 @@ class RiderApi {
     return Map<String, dynamic>.from(d is Map ? d : {});
   }
 
+  /* -------------------- Phone number change (SMS verified) -------------------- */
+  static Future<void> sendPhoneChangeOtp(String phone) async {
+    await ApiClient.data('POST', '/rider/phone-change/send-otp', body: {'phone': phone.trim()});
+  }
+
+  static Future<Map<String, dynamic>> verifyPhoneChangeOtp(String phone, String code) async {
+    final d = await ApiClient.data('POST', '/rider/phone-change/verify-otp', body: {
+      'phone': phone.trim(),
+      'code': code.trim(),
+    });
+    return Map<String, dynamic>.from(d is Map ? d : {});
+  }
+
   /* -------------------- Profile -------------------- */
   static Future<Map<String, dynamic>> me() async {
     final d = await ApiClient.data('GET', '/rider/me');

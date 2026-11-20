@@ -413,13 +413,15 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         )
                       : TextButton(
-                          onPressed: () {
-                            setState(() {
-                              _otpSent = false;
-                              _otpController.clear();
-                            });
-                          },
-                          child: Text(app.t('Resend OTP', 'Tuma OTP tena')),
+                          onPressed: _loading
+                              ? null
+                              : () {
+                                  _otpController.clear();
+                                  _sendOtp();
+                                },
+                          child: Text(_usePhone
+                              ? app.t('Resend code by SMS', 'Tuma nambari tena kwa SMS')
+                              : app.t('Resend OTP', 'Tuma OTP tena')),
                         ),
                 ),
                 const SizedBox(height: 24),
