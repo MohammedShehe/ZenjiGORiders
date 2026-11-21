@@ -38,6 +38,7 @@ class RideDetailsScreen extends StatefulWidget {
   final String? paymentMethod;
   final String? promoCode;
   final double? discount;
+  final PassengerInfo? passenger;
 
   const RideDetailsScreen({
     super.key,
@@ -54,6 +55,7 @@ class RideDetailsScreen extends StatefulWidget {
     this.paymentMethod,
     this.promoCode,
     this.discount,
+    this.passenger,
   });
 
   @override
@@ -125,6 +127,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         etaMinutes: widget.eta ?? 0,
         status: 'searching',
         paymentMethod: widget.paymentMethod ?? 'cash',
+        passenger: widget.passenger,
       );
       _loadTripRoute();
       _bookLive();
@@ -330,6 +333,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         paymentMethod: widget.paymentMethod,
         promoCode: widget.promoCode,
         discount: widget.discount,
+        passenger: widget.passenger,
       );
       if (!mounted) return;
       setState(() => _ride = ride);
@@ -1599,6 +1603,10 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             ),
           ],
         ),
+        if (_ride.passenger != null) ...[
+          const SizedBox(height: 14),
+          _passengerBanner(app, accent),
+        ],
         if (!_inTrip && _ride.tripPin != null && _ride.tripPin!.isNotEmpty) ...[
           const SizedBox(height: 14),
           _pinCard(app, isDark, accent),
@@ -1679,6 +1687,33 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   }
 
   /// Big OTP the rider reads out to the driver. The driver cannot start the ride without it.
+  /// Shown when the ride was booked for someone else: who is riding and how the driver reaches them.
+  Widget _passengerBanner(AppProvider app, Color accent) {
+    final p = _ride.passenger!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withValues(alpha: 0.30)),
+      ),
+      child: Row(children: [
+        Icon(Icons.group_rounded, color: accent),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(app.t('Riding: ${p.name}', 'Anayesafiri: ${p.name}'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+            Text(
+              app.t('${p.phone} · the driver will call them', '${p.phone} · dereva atampigia yeye'),
+              style: const TextStyle(fontSize: 12),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
   Widget _pinCard(AppProvider app, bool isDark, Color accent) {
     final pin = _ride.tripPin ?? '';
     return Container(

@@ -1,3 +1,26 @@
+/// The person actually riding when a ride was booked for someone else ("Book for a friend").
+class PassengerInfo {
+  final String name;
+  final String phone;
+  final String? note;
+  const PassengerInfo({required this.name, required this.phone, this.note});
+
+  factory PassengerInfo.fromJson(Map<String, dynamic> m) => PassengerInfo(
+        name: (m['name'] ?? '').toString(),
+        phone: (m['phone'] ?? '').toString(),
+        note: (m['note'] == null || m['note'].toString().trim().isEmpty) ? null : m['note'].toString(),
+      );
+
+  Map<String, dynamic> toBody() => {
+        'bookedForOther': true,
+        'passengerName': name,
+        'passengerPhone': phone,
+        if (note != null) 'passengerNote': note,
+      };
+
+  String get firstName => name.trim().split(' ').first;
+}
+
 class RideModel {
   final String id;
   final String rideType;
@@ -27,6 +50,7 @@ class RideModel {
   final bool reachedDestination;
   final double? amountDue;
   final bool canForceClose; // trip stuck because the driver vanished: rider may end it
+  final PassengerInfo? passenger; // set when booked for someone else
 
   RideModel({
     required this.id,
@@ -57,6 +81,7 @@ class RideModel {
     this.reachedDestination = false,
     this.amountDue,
     this.canForceClose = false,
+    this.passenger,
   }) : createdAt = createdAt ?? DateTime.now();
 
   RideModel copyWith({
@@ -114,6 +139,7 @@ class RideModel {
       reachedDestination: reachedDestination ?? this.reachedDestination,
       amountDue: amountDue ?? this.amountDue,
       canForceClose: canForceClose ?? this.canForceClose,
+      passenger: passenger,
     );
   }
 
@@ -166,6 +192,7 @@ class RideModel {
       reachedDestination: _flag(m['reached_destination']),
       amountDue: m['amount_due'] == null ? null : _num(m['amount_due']),
       canForceClose: _flag(m['can_force_close']),
+      passenger: m['passenger'] is Map ? PassengerInfo.fromJson(Map<String, dynamic>.from(m['passenger'] as Map)) : null,
     );
   }
 

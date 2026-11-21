@@ -249,6 +249,7 @@ class AppProvider extends ChangeNotifier {
     String? paymentMethod,
     String? promoCode,
     double? discount,
+    PassengerInfo? passenger,
   }) async {
     final fLat = fromLat ?? _currentLat;
     final fLng = fromLng ?? _currentLng;
@@ -280,6 +281,7 @@ class AppProvider extends ChangeNotifier {
         'destinationLng': tLng,
         'paymentMethod': pay,
         if (promo != null) 'promoCode': promo,
+        if (passenger != null) ...passenger.toBody(),
       };
       remote = await RiderApi.createRide(body);
       // Prefer server fare if present
@@ -322,6 +324,7 @@ class AppProvider extends ChangeNotifier {
       promoCode: promo,
       discount: discount ?? _pendingDiscount,
       tripPin: pin,
+      passenger: passenger,
     );
     _activeRide = ride;
     _pendingPromoCode = null;
@@ -372,6 +375,7 @@ class AppProvider extends ChangeNotifier {
           status: (m['status'] ?? 'unknown').toString(),
           paymentMethod: (m['payment_method'] ?? 'cash').toString(),
           createdAt: m['created_at'] != null ? DateTime.tryParse(m['created_at'].toString()) : null,
+          passenger: m['passenger'] is Map ? PassengerInfo.fromJson(Map<String, dynamic>.from(m['passenger'] as Map)) : null,
         );
       }).toList();
       notifyListeners();

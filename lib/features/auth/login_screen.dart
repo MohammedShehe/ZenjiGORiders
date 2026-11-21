@@ -1,3 +1,4 @@
+import '../../core/otp_autofill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -59,6 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _phoneController.dispose();
     _emailController.dispose();
     _otpController.dispose();
+    OtpAutofill.stop();
     super.dispose();
   }
 
@@ -91,6 +93,13 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       if (!mounted) return;
       setState(() { _otpSent = true; _countdown = 60; });
+      if (_usePhone) {
+        OtpAutofill.listen((code) {
+          if (!mounted || !_otpSent) return;
+          _otpController.text = code;
+          _verifyOtp();
+        });
+      }
       _startCountdown();
       _showSnack(_usePhone
           ? app.t('Verification code sent by SMS', 'Nambari ya uthibitisho imetumwa kwa SMS')

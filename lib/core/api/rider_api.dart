@@ -116,6 +116,18 @@ class RiderApi {
     return Map<String, dynamic>.from(d is Map ? d : {});
   }
 
+  /// People this rider booked rides for before ("Book for a friend").
+  static Future<List<Map<String, dynamic>>> savedPassengers() async {
+    final d = await ApiClient.data('GET', '/rider/rides/passengers');
+    final list = d is Map ? d['passengers'] : null;
+    if (list is! List) return [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  static Future<void> removeSavedPassenger(String id) async {
+    await ApiClient.data('DELETE', '/rider/rides/passengers/$id');
+  }
+
   /// The rider's current unfinished ride (searching … started), or null. Used to resume after a restart.
   static Future<Map<String, dynamic>?> activeRide() async {
     final d = await ApiClient.data('GET', '/rider/rides/active');

@@ -24,6 +24,8 @@ import '../extras/parcel_screen.dart';
 import '../extras/tour_packages_screen.dart';
 import '../extras/promotions_screen.dart';
 import '../payments/payment_methods_screen.dart';
+import '../../models/ride_model.dart';
+import 'book_for_friend_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -48,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   double? _estimatedFare;
   int? _eta;
   String _paymentMethod = 'cash';
+  PassengerInfo? _passenger; // set => this ride is booked for someone else
   double? _toLat;
   double? _toLng;
 
@@ -677,6 +680,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Text('Est. time: $etaLabel'),
             const SizedBox(height: 6),
             Text('Payment: $_paymentMethod'),
+            if (_passenger != null) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                const Icon(Icons.group_rounded, size: 16, color: AppColors.brightGreen),
+                const SizedBox(width: 6),
+                Expanded(child: Text('For ${_passenger!.name} · ${_passenger!.phone}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+              ]),
+            ],
           ],
         ),
         actions: [
@@ -702,6 +713,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           paymentMethod: _paymentMethod,
           promoCode: app.pendingPromoCode,
           discount: app.pendingDiscount,
+          passenger: _passenger,
         ),
       ),
     );
@@ -721,6 +733,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _fares = {};
       _placeSuggestions = [];
       _searching = false;
+      _passenger = null;
       _clearRouteState();
     });
     context.read<AppProvider>().refreshWallet();
@@ -1294,6 +1307,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 children: [
                   ...AppConstants.rideTypes.map((r) => _rideTile(app, r, isDark, compact, accent)),
                   const SizedBox(height: 6),
+                  _friendTile(app, isDark, accent, muted),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
@@ -1402,6 +1417,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _pickPassenger(AppProvider app, bool isDark) async {
+    final r = await BookForFriendSheet.show(context, current: _passenger, isDark: isDark, t: app.t);
+    if (!mounted) return;
+    if (r is PassengerInfo) {
+      setState(() => _passenger = r);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(app.t('Booking for ${r.firstName}. Make sure the pickup is where they are.', 'Unaomba kwa ${r.firstName}. Hakikisha eneo la kuchukua ni alipo.')),
+      ));
+    } else if (r == false) {
+      setState(() => _passenger = null);
+    }
+  }
+
+  Widget _friendTile(AppProvider app, bool isDark, Color accent, Color muted) {
+    final p = _passenger;
+    return Material(
+      color: accent.withValues(alpha: p == null ? 0.07 : 0.16),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _pickPassenger(app, isDark),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(children: [
+            Icon(p == null ? Icons.group_add_outlined : Icons.group_rounded, color: accent, size: 21),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  p == null ? app.t('Book for a friend', 'Omba kwa rafiki') : app.t('Riding: ${p.name}', 'Anayesafiri: ${p.name}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                Text(
+                  p == null ? app.t('Someone else rides, you pay', 'Mwingine anasafiri, wewe unalipa') : p.phone,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11.5, color: muted),
+                ),
+              ]),
+            ),
+            if (p != null)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close_rounded, size: 20),
+                onPressed: () => setState(() => _passenger = null),
+              )
+            else
+              const Icon(Icons.chevron_right_rounded),
+          ]),
+        ),
       ),
     );
   }

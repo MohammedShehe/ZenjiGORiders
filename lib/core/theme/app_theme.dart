@@ -30,7 +30,7 @@ class AppTheme {
       elevation: 0,
       centerTitle: true,
       systemOverlayStyle: SystemUiOverlayStyle.light,
-      titleTextStyle: GoogleFonts.playfairDisplay(
+      titleTextStyle: GoogleFonts.poppins(
         color: AppColors.offWhite,
         fontSize: 20,
         fontWeight: FontWeight.w700,
@@ -41,7 +41,10 @@ class AppTheme {
       color: AppColors.darkCard,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
+      ),
       margin: EdgeInsets.zero,
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
@@ -135,7 +138,7 @@ class AppTheme {
       elevation: 0,
       centerTitle: true,
       systemOverlayStyle: SystemUiOverlayStyle.dark,
-      titleTextStyle: GoogleFonts.playfairDisplay(
+      titleTextStyle: GoogleFonts.poppins(
         color: AppColors.deepNavy,
         fontSize: 20,
         fontWeight: FontWeight.w700,
@@ -147,7 +150,10 @@ class AppTheme {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shadowColor: AppColors.deepNavy.withOpacity(0.10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: AppColors.deepNavy.withValues(alpha: 0.07)),
+      ),
       margin: EdgeInsets.zero,
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(

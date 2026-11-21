@@ -78,6 +78,7 @@ class RideHistoryDetailsScreen extends StatelessWidget {
                 const SizedBox(height: 16),
                 _line(app.t('From', 'Kutoka'), ride.fromAddress),
                 _line(app.t('To', 'Kwenda'), ride.toAddress),
+                if (ride.passenger != null) _line(app.t('Passenger', 'Abiria'), '${ride.passenger!.name} · ${ride.passenger!.phone}'),
                 _line(app.t('Type', 'Aina'), ride.rideType.toUpperCase()),
                 if (ride.driver != null) ...[
                   _line(app.t('Driver', 'Dereva'), ride.driver!.name),

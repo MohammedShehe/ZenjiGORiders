@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 /// Zanzibar coastal palette: ocean, lagoon, coral and warm sand.
 class AppColors {
   // Dark / evening ocean
-  static const Color darkBg = Color(0xFF06283A);
-  static const Color darkSurface = Color(0xD9133D4C);
-  static const Color darkCard = Color(0xE61A4B58);
+  static const Color darkBg = Color(0xFF071E2B);
+  static const Color darkSurface = Color(0xFF10303F);
+  static const Color darkCard = Color(0xFF143847);
   static const Color aquaGreen = Color(0xFF31D0C6);
   static const Color skyBlue = Color(0xFF45B9E8);
   static const Color offWhite = Color(0xFFF7FBFA);
@@ -15,8 +15,8 @@ class AppColors {
 
   // Light / beach daylight
   static const Color lightBg = Color(0x00FFFFFF);
-  static const Color lightSurface = Color(0xF7FFFFFF);
-  static const Color lightCard = Color(0xDFFFFFFF);
+  static const Color lightSurface = Color(0xFFFFFFFF);
+  static const Color lightCard = Color(0xFFFFFFFF);
   static const Color deepNavy = Color(0xFF073B4C);
   static const Color oceanTeal = Color(0xFF008F91);
   static const Color charcoal = Color(0xFF20363D);
