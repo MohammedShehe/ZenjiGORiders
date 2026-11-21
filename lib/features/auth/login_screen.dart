@@ -130,6 +130,7 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _usePhone ? null : _emailController.text.trim().toLowerCase(),
       );
       await ApiClient.saveTokens(data);
+      if(!mounted)return;
       final user=UserModel.fromJson(Map<String,dynamic>.from(data['user']??{})); await context.read<AppProvider>().login(user);
       await PushService.instance.init();
       await PushService.instance.registerTokenNow();

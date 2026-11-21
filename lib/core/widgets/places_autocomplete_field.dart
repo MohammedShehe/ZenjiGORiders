@@ -246,7 +246,7 @@ class _PlacesAutocompleteFieldState extends State<PlacesAutocompleteField> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: theme.dividerColor),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, 4)),
+                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, 4)),
               ],
             ),
             child: ListView.separated(

@@ -245,7 +245,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             : [
                 Row(children: [
                   Text(app.t('Translate', 'Tafsiri'), style: const TextStyle(fontSize: 12)),
-                  Switch.adaptive(value: _translate, activeColor: accent, onChanged: (v) => setState(() => _translate = v)),
+                  Switch.adaptive(value: _translate, activeThumbColor: accent, onChanged: (v) => setState(() => _translate = v)),
                 ]),
               ],
       ),
@@ -289,7 +289,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                               ? () => setState(() => selected ? _selectedIds.remove(message.id) : _selectedIds.add(message.id))
                               : null,
                           child: Container(
-                            color: selected ? accent.withOpacity(.08) : Colors.transparent,
+                            color: selected ? accent.withValues(alpha: .08) : Colors.transparent,
                             padding: const EdgeInsets.symmetric(vertical: 2),
                             child: Align(
                               alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -312,7 +312,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                                       width: double.infinity,
                                       padding: const EdgeInsets.all(7),
                                       margin: const EdgeInsets.only(bottom: 6),
-                                      decoration: BoxDecoration(color: Colors.black.withOpacity(.10), borderRadius: BorderRadius.circular(8)),
+                                      decoration: BoxDecoration(color: Colors.black.withValues(alpha: .10), borderRadius: BorderRadius.circular(8)),
                                       child: Text(
                                         replied?.text ?? app.t('Replying to a message', 'Kujibu ujumbe'),
                                         maxLines: 2,

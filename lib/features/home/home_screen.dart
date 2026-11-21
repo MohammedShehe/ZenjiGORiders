@@ -674,7 +674,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const SizedBox(height: 4),
             Text('To: ${_toCtrl.text}', style: const TextStyle(fontSize: 13)),
             const SizedBox(height: 12),
-            Text('$rideName', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            Text(rideName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
             const SizedBox(height: 6),
             Text('Fare: $fareLabel', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text('Est. time: $etaLabel'),

@@ -14,7 +14,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/directions_service.dart';
-import '../../core/utils/tanzania_time.dart';
 import '../../models/ride_model.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/rider_api.dart';
@@ -914,14 +913,15 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           title: Text(app.t('Cancel Ride', 'Ghairi Safari')),
           content: SizedBox(
             width: 420,
-            child: Column(
+            child: RadioGroup<String>(
+              groupValue: selected,
+              onChanged: (v) => set(() => selected = v),
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 ...reasons.map((r) => RadioListTile<String>(
                       value: r,
-                      groupValue: selected,
                       title: Text(r),
-                      onChanged: (v) => set(() => selected = v),
                     )),
                 if (selected == reasons.last)
                   TextField(
@@ -930,6 +930,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                     decoration: InputDecoration(labelText: app.t('Describe the issue', 'Eleza tatizo')),
                   ),
               ],
+              ),
             ),
           ),
           actions: [
@@ -968,6 +969,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not cancel ride: ${e.toString().replaceFirst('Exception: ', '')}')));
         return;
       }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(app.t('Ride cancelled successfully.', 'Safari imeghairiwa kikamilifu.'))),
       );
@@ -1020,18 +1022,20 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           title: Text(app.t('Report Driver', 'Ripoti Dereva')),
           content: SizedBox(
             width: 420,
-            child: Column(
+            child: RadioGroup<String>(
+              groupValue: selected,
+              onChanged: (v) => set(() => selected = v),
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 ...reasons.map((r) => RadioListTile<String>(
                       value: r,
-                      groupValue: selected,
                       title: Text(r),
-                      onChanged: (v) => set(() => selected = v),
                     )),
                 if (selected == reasons.last)
                   TextField(controller: manual, maxLines: 3, decoration: InputDecoration(labelText: app.t('Describe', 'Eleza'))),
               ],
+              ),
             ),
           ),
           actions: [

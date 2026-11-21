@@ -203,7 +203,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, AppColors.deepNavy.withOpacity(0.62)],
+                        colors: [Colors.transparent, AppColors.deepNavy.withValues(alpha: 0.62)],
                       ),
                     ),
                   ),
@@ -285,7 +285,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: isDark
             ? null
-            : [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
+            : [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: Row(
         children: [
@@ -293,7 +293,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: (isDark ? AppColors.aquaGreen : AppColors.oceanTeal).withOpacity(0.15),
+              color: (isDark ? AppColors.aquaGreen : AppColors.oceanTeal).withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
@@ -416,7 +416,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: (isDark ? AppColors.aquaGreen : AppColors.oceanTeal).withOpacity(0.15),
+              color: (isDark ? AppColors.aquaGreen : AppColors.oceanTeal).withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal, size: 22),
@@ -450,7 +450,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           Switch.adaptive(
             value: value,
             onChanged: onChanged,
-            activeColor: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
+            activeThumbColor: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
           ),
         ],
       ),

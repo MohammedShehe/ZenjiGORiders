@@ -26,7 +26,6 @@ class LoadingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = backgroundColor ?? AppColors.brightGreen;
     final fg = textColor ?? AppColors.white;
 
@@ -64,7 +63,7 @@ class LoadingButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: bg,
           foregroundColor: fg,
-          disabledBackgroundColor: bg.withOpacity(0.6),
+          disabledBackgroundColor: bg.withValues(alpha: 0.6),
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),

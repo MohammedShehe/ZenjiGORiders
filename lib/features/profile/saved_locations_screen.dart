@@ -168,7 +168,7 @@ class _AddSavedLocationPageState extends State<_AddSavedLocationPage> {
         padding: const EdgeInsets.all(16),
         children: [
           DropdownButtonFormField<String>(
-            value: _label,
+            initialValue: _label,
             decoration: const InputDecoration(labelText: 'Label', border: OutlineInputBorder()),
             items: const ['Home', 'Work', 'Hotel', 'Other']
                 .map((v) => DropdownMenuItem(value: v, child: Text(v)))

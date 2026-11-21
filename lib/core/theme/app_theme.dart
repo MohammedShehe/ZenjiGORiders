@@ -73,7 +73,7 @@ class AppTheme {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),
-        borderSide: BorderSide(color: AppColors.aquaGreen.withOpacity(0.16)),
+        borderSide: BorderSide(color: AppColors.aquaGreen.withValues(alpha: 0.16)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),
@@ -149,7 +149,7 @@ class AppTheme {
       color: AppColors.lightSurface,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
-      shadowColor: AppColors.deepNavy.withOpacity(0.10),
+      shadowColor: AppColors.deepNavy.withValues(alpha: 0.10),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(color: AppColors.deepNavy.withValues(alpha: 0.07)),
@@ -182,7 +182,7 @@ class AppTheme {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),
-        borderSide: BorderSide(color: AppColors.oceanTeal.withOpacity(0.10)),
+        borderSide: BorderSide(color: AppColors.oceanTeal.withValues(alpha: 0.10)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),

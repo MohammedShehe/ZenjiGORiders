@@ -80,7 +80,7 @@ class MapMarkers {
   static void _paintDestination(Canvas canvas, Size size) {
     final cx = size.width / 2;
     const r = 15.0;
-    final cy = r + 6;
+    const cy = r + 6;
     final tip = Offset(cx, size.height - 3);
     // ground shadow
     canvas.drawOval(

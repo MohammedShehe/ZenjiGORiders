@@ -53,7 +53,6 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
   // in-flight payment
   String? _paymentId;
   String? _checkoutUrl;
-  String _resultMessage = '';
 
   @override
   void initState() {
@@ -364,58 +363,6 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
             style: TextStyle(fontSize: 12, color: muted)),
       ];
 
-  List<Widget> _cardSection(AppProvider app, Color accent, Color muted) {
-    final saved = (app.user?.paymentMethods ?? const <PaymentMethodModel>[]).where((m) => m.type == 'bank').toList();
-    final usingSaved = _savedCard(app) != null;
-    final sc = _savedCard(app);
-
-    return [
-      // Live preview: mirrors the typed details, or shows the chosen saved card.
-      Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 350),
-          child: CreditCardPreview(
-            holder: usingSaved ? (sc!.cardHolder ?? '') : _holderCtrl.text,
-            number: usingSaved ? '' : _cardCtrl.text,
-            expiry: usingSaved ? (sc!.expiry ?? '') : _expiryCtrl.text,
-            cvv: usingSaved ? '' : _cvvCtrl.text,
-            brand: usingSaved ? cardBrandFromKey(sc!.cardBrand) : _brand,
-            showBack: !usingSaved && _flipped,
-            onTap: usingSaved ? null : () => setState(() => _flipped = !_flipped),
-          ),
-        ),
-      ),
-      if (usingSaved)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Center(child: Text('•••• •••• •••• ${sc!.cardLast4 ?? ''}', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1.2, color: muted))),
-        ),
-      const SizedBox(height: 14),
-      if (saved.isNotEmpty) ...[
-        ...saved.map((m) => _savedCardTile(m, m.id == _savedCardId, accent)),
-        _newCardTile(!usingSaved, accent, app),
-        const SizedBox(height: 10),
-      ],
-      if (!usingSaved) ..._newCardFields(app, accent, muted),
-      const SizedBox(height: 10),
-      Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: accent.withOpacity(.08), borderRadius: BorderRadius.circular(14)),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(Icons.verified_user_rounded, color: accent, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              app.t('Your card number and CVV stay on this device. You approve the payment on your bank\'s secure page (3-D Secure / OTP). The wallet is credited only after the bank confirms.',
-                  'Namba ya kadi na CVV hubaki kwenye simu hii. Unathibitisha malipo kwenye ukurasa salama wa benki yako. Salio huongezwa baada ya benki kuthibitisha.'),
-              style: const TextStyle(fontSize: 12, height: 1.35),
-            ),
-          ),
-        ]),
-      ),
-    ];
-  }
-
   List<Widget> _newCardFields(AppProvider app, Color accent, Color muted) => [
         TextField(
           controller: _holderCtrl,
@@ -481,7 +428,7 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
           value: _saveCard,
-          activeColor: accent,
+          activeThumbColor: accent,
           title: Text(app.t('Save this card for next time', 'Hifadhi kadi hii kwa wakati ujao')),
           subtitle: Text(app.t('Only the last 4 digits, name and expiry are saved.', 'Tarakimu 4 za mwisho, jina na tarehe ya mwisho pekee ndizo huhifadhiwa.')),
           onChanged: (v) => setState(() => _saveCard = v),
@@ -536,7 +483,7 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: selected ? accent.withOpacity(.12) : Theme.of(context).cardColor,
+          color: selected ? accent.withValues(alpha: .12) : Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: selected ? accent : Colors.transparent, width: 1.5),
         ),

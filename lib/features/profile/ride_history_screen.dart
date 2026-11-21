@@ -41,8 +41,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     contentPadding: const EdgeInsets.all(16),
                     leading: CircleAvatar(
                       backgroundColor: isCancelled
-                          ? Colors.red.withOpacity(0.15)
-                          : Colors.green.withOpacity(0.15),
+                          ? Colors.red.withValues(alpha: 0.15)
+                          : Colors.green.withValues(alpha: 0.15),
                       child: Icon(
                         ride.rideType == 'boda' ? Icons.two_wheeler : Icons.local_taxi,
                         color: isCancelled ? Colors.red : Colors.green,

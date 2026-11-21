@@ -217,6 +217,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           await context.read<AppProvider>().login(user);
         } catch (_) {}
       }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Email verified')));
     } catch (e) {
       if (mounted) {
@@ -257,7 +258,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         body['email'] = newEmail;
       }
       final data = await RiderApi.updateMe(body);
-      final user = UserModel.fromJson(Map<String, dynamic>.from(data is Map && data['id'] != null ? data : (data['user'] ?? data)));
+      final user = UserModel.fromJson(Map<String, dynamic>.from(data['id'] != null ? data : (data['user'] ?? data)));
       await app.login(user);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated')));
@@ -291,7 +292,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   onTap: _previewPhoto,
                   child: CircleAvatar(
                     radius: 52,
-                    backgroundColor: accent.withOpacity(0.15),
+                    backgroundColor: accent.withValues(alpha: 0.15),
                     backgroundImage: _localPhoto != null
                         ? FileImage(_localPhoto!)
                         : (_photoUrl != null && _photoUrl!.isNotEmpty ? NetworkImage(_photoUrl!) as ImageProvider : null),

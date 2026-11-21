@@ -117,7 +117,7 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
 
     setState(() => _loading = true);
 
-    final id = '';
+    const id = '';
     final method = PaymentMethodModel(
       id: id,
       type: _type,
@@ -219,12 +219,12 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [accent.withOpacity(.18), AppColors.skyBlue.withOpacity(.10)]),
+                  gradient: LinearGradient(colors: [accent.withValues(alpha: .18), AppColors.skyBlue.withValues(alpha: .10)]),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
                   children: [
-                    CircleAvatar(backgroundColor: accent.withOpacity(.18), child: Icon(Icons.shield_rounded, color: accent)),
+                    CircleAvatar(backgroundColor: accent.withValues(alpha: .18), child: Icon(Icons.shield_rounded, color: accent)),
                     const SizedBox(width: 12),
                     Expanded(child: Text(app.t('Secure payment setup. Your details stay attached to your rider account.', 'Usanidi salama wa malipo. Taarifa zako zitaunganishwa na akaunti yako.'), style: const TextStyle(fontSize: 13, height: 1.35))),
                   ],
@@ -245,7 +245,7 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
                 Text(app.t('Mobile network', 'Mtandao wa simu'), style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: _provider,
+                  initialValue: _provider,
                   decoration: InputDecoration(labelText: app.t('Select provider', 'Chagua mtandao')),
                   items: const [
                     DropdownMenuItem(value: 'M-Pesa', child: Text('M-Pesa')),
@@ -336,7 +336,7 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 value: _makeDefault,
-                activeColor: accent,
+                activeThumbColor: accent,
                 title: Text(app.t('Make default payment method', 'Fanya iwe njia ya malipo ya msingi')),
                 subtitle: Text(app.t('Use it automatically when booking a ride.', 'Itatumika moja kwa moja wakati wa kuomba safari.')),
                 onChanged: (v) => setState(() => _makeDefault = v),
@@ -382,7 +382,7 @@ class _AddPaymentMethodScreenState extends State<AddPaymentMethodScreen> {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: selected ? accent.withOpacity(.12) : Theme.of(context).cardColor,
+          color: selected ? accent.withValues(alpha: .12) : Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: selected ? accent : Colors.transparent, width: 1.5),
         ),

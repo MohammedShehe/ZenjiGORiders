@@ -25,8 +25,8 @@ class TransactionHistoryScreen extends StatelessWidget {
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundColor: credit
-                        ? AppColors.brightGreen.withOpacity(0.15)
-                        : AppColors.error.withOpacity(0.12),
+                        ? AppColors.brightGreen.withValues(alpha: 0.15)
+                        : AppColors.error.withValues(alpha: 0.12),
                     child: Icon(
                       t.type == 'topup'
                           ? Icons.add

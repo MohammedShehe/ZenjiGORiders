@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show FontFeature;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
@@ -232,7 +231,7 @@ class CreditCardPreview extends StatelessWidget {
         gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors),
         borderRadius: radius,
         boxShadow: [
-          BoxShadow(color: colors.last.withOpacity(.38), blurRadius: 26 * s, offset: Offset(0, 14 * s)),
+          BoxShadow(color: colors.last.withValues(alpha: .38), blurRadius: 26 * s, offset: Offset(0, 14 * s)),
         ],
       ),
       child: ClipRRect(
@@ -251,7 +250,7 @@ class CreditCardPreview extends StatelessWidget {
   Widget _circle(double size, double opacity) => Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(opacity)),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: opacity)),
       );
 
   Widget _front(double s) {
@@ -272,7 +271,7 @@ class CreditCardPreview extends StatelessWidget {
             children: [
               Text(
                 'ZenjiGO',
-                style: TextStyle(color: Colors.white.withOpacity(.92), fontWeight: FontWeight.w800, fontSize: 16 * s, letterSpacing: .4),
+                style: TextStyle(color: Colors.white.withValues(alpha: .92), fontWeight: FontWeight.w800, fontSize: 16 * s, letterSpacing: .4),
               ),
               const Spacer(),
               AnimatedSwitcher(
@@ -286,7 +285,7 @@ class CreditCardPreview extends StatelessWidget {
             children: [
               _chip(s),
               SizedBox(width: 10 * s),
-              Icon(Icons.contactless_rounded, color: Colors.white.withOpacity(.85), size: 26 * s),
+              Icon(Icons.contactless_rounded, color: Colors.white.withValues(alpha: .85), size: 26 * s),
             ],
           ),
           const Spacer(),
@@ -297,7 +296,7 @@ class CreditCardPreview extends StatelessWidget {
               display,
               maxLines: 1,
               style: TextStyle(
-                color: Colors.white.withOpacity(capped.isEmpty ? .7 : 1),
+                color: Colors.white.withValues(alpha: capped.isEmpty ? .7 : 1),
                 fontSize: 22 * s,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 2.2 * s,
@@ -321,7 +320,7 @@ class CreditCardPreview extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(hasHolder ? 1 : .55),
+                        color: Colors.white.withValues(alpha: hasHolder ? 1 : .55),
                         fontSize: 14 * s,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 1 * s,
@@ -339,7 +338,7 @@ class CreditCardPreview extends StatelessWidget {
                   Text(
                     hasExpiry ? expiry : 'MM/YY',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(hasExpiry ? 1 : .55),
+                      color: Colors.white.withValues(alpha: hasExpiry ? 1 : .55),
                       fontSize: 14 * s,
                       fontWeight: FontWeight.w600,
                       letterSpacing: 1 * s,
@@ -361,7 +360,7 @@ class CreditCardPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(height: 26 * s),
-        Container(height: 44 * s, color: Colors.black.withOpacity(.82)),
+        Container(height: 44 * s, color: Colors.black.withValues(alpha: .82)),
         SizedBox(height: 22 * s),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 22 * s),
@@ -371,7 +370,7 @@ class CreditCardPreview extends StatelessWidget {
                 child: Container(
                   height: 38 * s,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(.85),
+                    color: Colors.white.withValues(alpha: .85),
                     borderRadius: BorderRadius.circular(6 * s),
                   ),
                   child: CustomPaint(painter: _SignatureLinesPainter()),
@@ -425,7 +424,7 @@ class CreditCardPreview extends StatelessWidget {
 
   Widget _label(String text, double s) => Text(
         text,
-        style: TextStyle(color: Colors.white.withOpacity(.6), fontSize: 9 * s, fontWeight: FontWeight.w700, letterSpacing: 1.2),
+        style: TextStyle(color: Colors.white.withValues(alpha: .6), fontSize: 9 * s, fontWeight: FontWeight.w700, letterSpacing: 1.2),
       );
 
   Widget _chip(double s) => Container(
@@ -444,7 +443,7 @@ class CreditCardPreview extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: List.generate(
             3,
-            (_) => Container(height: 1.2 * s, color: Colors.black.withOpacity(.22)),
+            (_) => Container(height: 1.2 * s, color: Colors.black.withValues(alpha: .22)),
           ),
         ),
       );
@@ -463,7 +462,7 @@ class CreditCardPreview extends StatelessWidget {
           child: Stack(
             children: [
               Positioned(left: 0, child: _dot(28 * s, const Color(0xFFEB001B))),
-              Positioned(right: 0, child: _dot(28 * s, const Color(0xFFF79E1B).withOpacity(.92))),
+              Positioned(right: 0, child: _dot(28 * s, const Color(0xFFF79E1B).withValues(alpha: .92))),
             ],
           ),
         );
@@ -483,7 +482,7 @@ class CreditCardPreview extends StatelessWidget {
           ],
         );
       case CardBrand.unknown:
-        return Icon(Icons.credit_card_rounded, color: Colors.white.withOpacity(.75), size: 28 * s);
+        return Icon(Icons.credit_card_rounded, color: Colors.white.withValues(alpha: .75), size: 28 * s);
     }
   }
 
@@ -498,7 +497,7 @@ class _SignatureLinesPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.black.withOpacity(.12)
+      ..color = Colors.black.withValues(alpha: .12)
       ..strokeWidth = 1;
     for (double y = 8; y < size.height; y += 8) {
       canvas.drawLine(Offset(6, y), Offset(size.width - 6, y), paint);

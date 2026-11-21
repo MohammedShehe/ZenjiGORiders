@@ -65,7 +65,7 @@ class ProfileScreen extends StatelessWidget {
                       }),
                       const SizedBox(height: 10),
                       Text(user?.fullName ?? 'Guest', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600)),
-                      Text(user?.phone ?? '', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13)),
+                      Text(user?.phone ?? '', style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13)),
                     ],
                   ),
                 ),
@@ -126,14 +126,14 @@ class ProfileScreen extends StatelessWidget {
                       title: Text(app.t('Notifications', 'Arifa')),
                       value: app.notificationsEnabled,
                       onChanged: (v) => app.setNotifications(v),
-                      activeColor: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
+                      activeThumbColor: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
                     ),
                     SwitchListTile(
                       secondary: Icon(isDark ? Icons.dark_mode : Icons.light_mode, color: isDark ? AppColors.aquaGreen : AppColors.oceanTeal),
                       title: Text(app.t('Dark Mode', 'Hali ya Giza')),
                       value: isDark,
                       onChanged: (v) => app.setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
-                      activeColor: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
+                      activeThumbColor: isDark ? AppColors.aquaGreen : AppColors.oceanTeal,
                     ),
                   ], isDark),
                   const SizedBox(height: 12),
@@ -154,6 +154,7 @@ class ProfileScreen extends StatelessWidget {
                       );
                       if (confirm == true && context.mounted) {
                         await app.logout();
+                        if (!context.mounted) return;
                         Navigator.of(context).pushAndRemoveUntil(
                           MaterialPageRoute(builder: (_) => const LoginScreen()),
                           (_) => false,

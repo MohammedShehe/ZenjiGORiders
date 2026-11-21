@@ -206,9 +206,9 @@ class _SplashScreenState extends State<SplashScreen>
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    AppColors.deepNavy.withOpacity(0.76),
-                    AppColors.darkBg.withOpacity(0.72),
-                    AppColors.darkBg.withOpacity(0.94),
+                    AppColors.deepNavy.withValues(alpha: 0.76),
+                    AppColors.darkBg.withValues(alpha: 0.72),
+                    AppColors.darkBg.withValues(alpha: 0.94),
                   ],
                 ),
               ),
@@ -257,7 +257,7 @@ class _SplashScreenState extends State<SplashScreen>
                                   borderRadius:
                                       BorderRadius.all(Radius.elliptical(60, 11)),
                                   color: Colors.black
-                                      .withOpacity(_shadowOpacity.value),
+                                      .withValues(alpha: _shadowOpacity.value),
                                 ),
                               ),
                             ),
@@ -303,7 +303,7 @@ class _SplashScreenState extends State<SplashScreen>
                                       ? [
                                           BoxShadow(
                                             color: AppColors.skyBlue
-                                                .withOpacity(0.35),
+                                                .withValues(alpha: 0.35),
                                             blurRadius: 34,
                                             spreadRadius: 2,
                                           ),
@@ -418,14 +418,14 @@ class _RoadLoaderPainter extends CustomPainter {
 
     // Road base line.
     final roadPaint = Paint()
-      ..color = AppColors.darkTextSecondary.withOpacity(0.25)
+      ..color = AppColors.darkTextSecondary.withValues(alpha: 0.25)
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(Offset(0, roadY), Offset(size.width, roadY), roadPaint);
 
     // Dashes scrolling to suggest forward motion.
     final dashPaint = Paint()
-      ..color = AppColors.aquaGreen.withOpacity(0.85)
+      ..color = AppColors.aquaGreen.withValues(alpha: 0.85)
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
     const dashWidth = 10.0;
@@ -464,7 +464,7 @@ class _RoadLoaderPainter extends CustomPainter {
 
     // Soft glow trailing the car.
     final glowPaint = Paint()
-      ..color = AppColors.aquaGreen.withOpacity(0.18)
+      ..color = AppColors.aquaGreen.withValues(alpha: 0.18)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
     canvas.drawCircle(carCenter, 14, glowPaint);
   }
@@ -489,7 +489,7 @@ class _WavePainter extends CustomPainter {
       amplitude: 7,
       waveLength: size.width * 0.9,
       phase: progress * 2 * math.pi,
-      color: AppColors.oceanTeal.withOpacity(0.10),
+      color: AppColors.oceanTeal.withValues(alpha: 0.10),
     );
     _drawWave(
       canvas,
@@ -498,7 +498,7 @@ class _WavePainter extends CustomPainter {
       amplitude: 5,
       waveLength: size.width * 0.65,
       phase: -progress * 2 * math.pi * 1.4,
-      color: AppColors.aquaGreen.withOpacity(0.08),
+      color: AppColors.aquaGreen.withValues(alpha: 0.08),
     );
   }
 

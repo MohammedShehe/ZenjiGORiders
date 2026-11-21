@@ -100,7 +100,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: accent.withOpacity(.10), borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(color: accent.withValues(alpha: .10), borderRadius: BorderRadius.circular(20)),
             child: Row(children: [
               Icon(Icons.verified_user_rounded, color: accent),
               const SizedBox(width: 12),
@@ -168,10 +168,10 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
         child: Row(children: [
-          Container(width: 48, height: 48, decoration: BoxDecoration(color: accent.withOpacity(.12), borderRadius: BorderRadius.circular(14)), child: Icon(isCard ? Icons.credit_card_rounded : Icons.phone_android_rounded, color: accent)),
+          Container(width: 48, height: 48, decoration: BoxDecoration(color: accent.withValues(alpha: .12), borderRadius: BorderRadius.circular(14)), child: Icon(isCard ? Icons.credit_card_rounded : Icons.phone_android_rounded, color: accent)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))), if (method.isDefault) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: AppColors.brightGreen.withOpacity(.12), borderRadius: BorderRadius.circular(20)), child: const Text('DEFAULT', style: TextStyle(color: AppColors.brightGreen, fontSize: 9, fontWeight: FontWeight.w800))) ]),
+            Row(children: [Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))), if (method.isDefault) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: AppColors.brightGreen.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)), child: const Text('DEFAULT', style: TextStyle(color: AppColors.brightGreen, fontSize: 9, fontWeight: FontWeight.w800))) ]),
             const SizedBox(height: 4),
             Text(subtitle, style: TextStyle(fontSize: 12, color: app.isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary)),
           ])),

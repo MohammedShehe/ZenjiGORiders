@@ -147,10 +147,12 @@ class _SignupScreenState extends State<SignupScreen> {
       if (rawUser is! Map) {
         throw Exception('OTP verified but the server did not return a rider account. Please contact support.');
       }
+      if (!mounted) return;
       final user = UserModel.fromJson(Map<String, dynamic>.from(rawUser));
       await context.read<AppProvider>().login(user);
       if (!mounted) return;
       await _saveRegistrationAsHome();
+      if (!mounted) return;
 
       _countdownTimer?.cancel();
       Navigator.of(context).push(
@@ -180,6 +182,7 @@ class _SignupScreenState extends State<SignupScreen> {
         'district': _district,
         'ward': _ward,
       });
+      if (!mounted) return;
       final user = UserModel.fromJson(Map<String,dynamic>.from(r['data'] ?? {}));
       await context.read<AppProvider>().login(user);
       if (!mounted) return;
@@ -194,6 +197,7 @@ class _SignupScreenState extends State<SignupScreen> {
       }
       return;
     }
+    if (!mounted) return;
     if (skipPayment) {
       _goHome();
     } else {
@@ -229,7 +233,7 @@ class _SignupScreenState extends State<SignupScreen> {
           }
         } catch (_) {}
       }
-      if (lat == null || lng == null) return;
+      if (lat == null || lng == null || !mounted) return;
 
       await context.read<AppProvider>().addSavedLocation(
         SavedLocationModel(
@@ -591,68 +595,6 @@ class _SignupScreenState extends State<SignupScreen> {
             text: _otpSent ? app.t('Verify & Continue', 'Thibitisha & Endelea') : app.t('Send OTP', 'Tuma OTP'),
             isLoading: _loading,
             onPressed: _otpSent ? _verifyAndNext : _sendOtp,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLocationStep(AppProvider app, bool isDark) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(app.t('Your Location', 'Mahali Pako'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text(
-            app.t('Help us serve you better in Zanzibar', 'Tusaidie kukuhudumia vizuri Zanzibar'),
-            style: TextStyle(color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
-          ),
-          const SizedBox(height: 24),
-          _locationField(app.t('Island', 'Kisiwa'), _island, () => _showSearchablePicker(
-            title: app.t('Select Island', 'Chagua Kisiwa'),
-            items: LocationData.islands,
-            onSelect: (v) => setState(() { _island = v; _region = null; _district = null; _ward = null; }),
-          ), isDark),
-          const SizedBox(height: 14),
-          _locationField(app.t('Region', 'Mkoa'), _region, _island == null ? null : () => _showSearchablePicker(
-            title: app.t('Select Region', 'Chagua Mkoa'),
-            items: LocationData.regions[_island!] ?? [],
-            onSelect: (v) => setState(() {
-              _region = v;
-              _regionCtrl.text = v;
-              _homeAddress = v;
-              _homeLat = null; // resolve via geocode on save
-              _homeLng = null;
-              _district = null;
-              _ward = null;
-            }),
-          ), isDark),
-          const SizedBox(height: 14),
-          _locationField(app.t('District', 'Wilaya'), _district, _region == null ? null : () => _showSearchablePicker(
-            title: app.t('Select District', 'Chagua Wilaya'),
-            items: LocationData.districts[_region!] ?? [],
-            onSelect: (v) => setState(() { _district = v; _ward = null; }),
-          ), isDark),
-          const SizedBox(height: 14),
-          _locationField(app.t('Ward (Shehia)', 'Kata (Shehia)'), _ward, _district == null ? null : () => _showSearchablePicker(
-            title: app.t('Select Ward', 'Chagua Kata'),
-            items: LocationData.wards[_district!] ?? LocationData.getAllWards(),
-            onSelect: (v) => setState(() => _ward = v),
-          ), isDark),
-          const SizedBox(height: 32),
-          LoadingButton(
-            text: app.t('Continue to Payments', 'Endelea kwa Malipo'),
-            isLoading: _loading,
-            onPressed: () => _completeSignup(skipPayment: false),
-            icon: Icons.payment_rounded,
-          ),
-          const SizedBox(height: 12),
-          LoadingButton(
-            text: app.t('Skip for now', 'Ruka kwa sasa'),
-            isOutlined: true,
-            onPressed: () => _completeSignup(skipPayment: true),
           ),
         ],
       ),

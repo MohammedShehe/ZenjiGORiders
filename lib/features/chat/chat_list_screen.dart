@@ -4,7 +4,6 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../core/theme/app_colors.dart';
 import '../../models/ride_model.dart';
 import '../../providers/app_provider.dart';
-import '../../core/api/rider_api.dart';
 import 'chat_detail_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
@@ -49,11 +48,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
             onPressed: () async {
               try {
                 final conv = await context.read<AppProvider>().openSupportChat();
-                if (conv != null && mounted) {
+                if (conv != null && context.mounted) {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailScreen(conversation: conv)));
                 }
               } catch (e) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
               }
             },
           ),
@@ -112,7 +111,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         builder: (_) => ChatDetailScreen(conversation: chat),
                       ),
                     ).then((_) {
-                      if (mounted) context.read<AppProvider>().refreshConversations();
+                      if (context.mounted) context.read<AppProvider>().refreshConversations();
                     }),
                     leading: CircleAvatar(
                       backgroundColor: chat.isSupport

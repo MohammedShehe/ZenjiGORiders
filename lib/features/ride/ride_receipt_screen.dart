@@ -31,7 +31,7 @@ class RideReceiptScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: AppColors.brightGreen.withOpacity(0.12),
+                color: AppColors.brightGreen.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
