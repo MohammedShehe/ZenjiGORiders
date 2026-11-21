@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
@@ -41,9 +40,7 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
 
   // card
   String? _savedCardId; // null => enter a new card
-  bool _saveCard = true;
-  bool _flipped = false;
-  bool _submitted = false;
+  final bool _saveCard = true;
   final _holderCtrl = TextEditingController();
   final _cardCtrl = TextEditingController();
   final _expiryCtrl = TextEditingController();
@@ -62,9 +59,6 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
     for (final c in [_holderCtrl, _cardCtrl, _expiryCtrl, _cvvCtrl]) {
       c.addListener(_refresh);
     }
-    _cvvFocus.addListener(() {
-      if (mounted) setState(() => _flipped = _cvvFocus.hasFocus);
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _prefill());
   }
 
@@ -174,7 +168,6 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
         return _snack(app.t('Enter a valid mobile money number.', 'Weka namba sahihi ya pesa ya simu.'));
       }
     } else if (_savedCard(app) == null && !_newCardValid(app)) {
-      setState(() => _submitted = true);
       return _snack(app.t('Complete the card details correctly.', 'Jaza taarifa za kadi kwa usahihi.'));
     }
 
@@ -362,118 +355,6 @@ class _WalletSetupScreenState extends State<WalletSetupScreen> {
         Text(app.t('You will get a prompt on this phone. Enter your PIN to approve the payment.', 'Utapokea ombi kwenye simu hii. Weka PIN yako kuthibitisha malipo.'),
             style: TextStyle(fontSize: 12, color: muted)),
       ];
-
-  List<Widget> _newCardFields(AppProvider app, Color accent, Color muted) => [
-        TextField(
-          controller: _holderCtrl,
-          textCapitalization: TextCapitalization.words,
-          textInputAction: TextInputAction.next,
-          autocorrect: false,
-          inputFormatters: cardHolderFormatters,
-          decoration: InputDecoration(
-            labelText: app.t('Card holder name', 'Jina la mwenye kadi'),
-            prefixIcon: const Icon(Icons.person_outline_rounded),
-            errorText: _submitted ? _holderError(app) : null,
-          ),
-        ),
-        const SizedBox(height: 14),
-        TextField(
-          controller: _cardCtrl,
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          autocorrect: false,
-          enableSuggestions: false,
-          inputFormatters: [CardNumberInputFormatter()],
-          decoration: InputDecoration(
-            labelText: app.t('Card number', 'Namba ya kadi'),
-            prefixIcon: const Icon(Icons.credit_card_rounded),
-            suffixText: _brand == CardBrand.unknown ? null : _brand.label,
-            errorText: _submitted ? _numberError(app) : null,
-          ),
-        ),
-        const SizedBox(height: 14),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(
-            child: TextField(
-              controller: _expiryCtrl,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              enableSuggestions: false,
-              maxLength: 5,
-              inputFormatters: [ExpiryInputFormatter()],
-              decoration: InputDecoration(
-                labelText: app.t('Expiry (MM/YY)', 'Mwisho (MM/YY)'),
-                counterText: '',
-                errorText: _submitted ? _expiryError(app) : null,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: _cvvCtrl,
-              focusNode: _cvvFocus,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              obscureText: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              maxLength: _brand.cvvLength,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(labelText: 'CVV', counterText: '', errorText: _submitted ? _cvvError(app) : null),
-            ),
-          ),
-        ]),
-        SwitchListTile.adaptive(
-          contentPadding: EdgeInsets.zero,
-          value: _saveCard,
-          activeThumbColor: accent,
-          title: Text(app.t('Save this card for next time', 'Hifadhi kadi hii kwa wakati ujao')),
-          subtitle: Text(app.t('Only the last 4 digits, name and expiry are saved.', 'Tarakimu 4 za mwisho, jina na tarehe ya mwisho pekee ndizo huhifadhiwa.')),
-          onChanged: (v) => setState(() => _saveCard = v),
-        ),
-      ];
-
-  Widget _savedCardTile(PaymentMethodModel m, bool selected, Color accent) => GestureDetector(
-        onTap: () => setState(() => _savedCardId = m.id),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: selected ? accent : Colors.transparent, width: 1.5)),
-          child: Row(children: [
-            Icon(Icons.credit_card_rounded, color: selected ? accent : null),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(m.provider ?? 'Bank Card', style: const TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 3),
-                Text('•••• ${m.cardLast4 ?? ''}${(m.expiry ?? '').isEmpty ? '' : '  ·  ${m.expiry}'}', style: const TextStyle(fontSize: 12)),
-              ]),
-            ),
-            Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off, color: selected ? accent : Colors.grey),
-          ]),
-        ),
-      );
-
-  Widget _newCardTile(bool selected, Color accent, AppProvider app) => GestureDetector(
-        onTap: () => setState(() {
-          _savedCardId = null;
-          _submitted = false;
-        }),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: selected ? accent : Colors.transparent, width: 1.5)),
-          child: Row(children: [
-            Icon(Icons.add_card_rounded, color: selected ? accent : null),
-            const SizedBox(width: 12),
-            Expanded(child: Text(app.t('Use a new card', 'Tumia kadi mpya'), style: const TextStyle(fontWeight: FontWeight.w700))),
-            Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off, color: selected ? accent : Colors.grey),
-          ]),
-        ),
-      );
 
   Widget _methodTile(String id, IconData icon, String label, Color accent) {
     final selected = _method == id;

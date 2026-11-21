@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:pin_code_fields/pin_code_fields.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/loading_button.dart';
-import '../../core/constants/location_data.dart';
 import '../../core/widgets/places_autocomplete_field.dart';
 import '../../models/user_model.dart';
 import '../../core/api/api_client.dart';
@@ -167,49 +166,6 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  Future<void> _completeSignup({bool skipPayment = false}) async {
-    if (_island == null || _region == null || _district == null || _ward == null) {
-      _snack(context.read<AppProvider>().t('Please select full location', 'Chagua mahali kamili'));
-      return;
-    }
-    setState(() => _loading = true);
-    try {
-      final r = await ApiClient.request('PATCH','/rider/me',body:{
-        'fullName': _nameCtrl.text.trim(),
-        'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
-        'island': _island,
-        'region': _region,
-        'district': _district,
-        'ward': _ward,
-      });
-      if (!mounted) return;
-      final user = UserModel.fromJson(Map<String,dynamic>.from(r['data'] ?? {}));
-      await context.read<AppProvider>().login(user);
-      if (!mounted) return;
-      await _saveRegistrationAsHome();
-
-      setState(() => _loading = false);
-
-    } catch(e) {
-      if (mounted) {
-        setState(() => _loading = false);
-        _snack(e.toString().replaceFirst('Exception: ',''));
-      }
-      return;
-    }
-    if (!mounted) return;
-    if (skipPayment) {
-      _goHome();
-    } else {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => PaymentMethodsScreen(onSkip: _goHome, onComplete: _goHome),
-        ),
-      );
-    }
-  }
-
-
   /// Persist registration area as saved location "Home".
   Future<void> _saveRegistrationAsHome() async {
     try {
@@ -271,77 +227,6 @@ class _SignupScreenState extends State<SignupScreen> {
   void _snack(String m) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
-  }
-
-  void _showSearchablePicker({
-    required String title,
-    required List<String> items,
-    required ValueChanged<String> onSelect,
-  }) {
-    final isDark = context.read<AppProvider>().isDark;
-    final searchCtrl = TextEditingController();
-    List<String> filtered = List.from(items);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setModal) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.4,
-              maxChildSize: 0.9,
-              expand: false,
-              builder: (_, sc) {
-                return Column(
-                  children: [
-                    const SizedBox(height: 12),
-                    Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: searchCtrl,
-                            decoration: InputDecoration(
-                              hintText: context.read<AppProvider>().t('Search...', 'Tafuta...'),
-                              prefixIcon: const Icon(Icons.search),
-                            ),
-                            onChanged: (q) {
-                              setModal(() {
-                                filtered = items.where((e) => e.toLowerCase().contains(q.toLowerCase())).toList();
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        controller: sc,
-                        itemCount: filtered.length,
-                        itemBuilder: (_, i) => ListTile(
-                          title: Text(filtered[i]),
-                          onTap: () {
-                            onSelect(filtered[i]);
-                            Navigator.pop(ctx);
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
-    );
   }
 
   @override
@@ -597,44 +482,6 @@ class _SignupScreenState extends State<SignupScreen> {
             onPressed: _otpSent ? _verifyAndNext : _sendOtp,
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _locationField(String label, String? value, VoidCallback? onTap, bool isDark) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.darkSurface : AppColors.lightCard,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isDark ? AppColors.darkCard : Colors.grey.shade200),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label, style: TextStyle(fontSize: 12, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary)),
-                  const SizedBox(height: 4),
-                  Text(
-                    value ?? context.read<AppProvider>().t('Select', 'Chagua'),
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: value != null ? FontWeight.w600 : FontWeight.w400,
-                      color: value != null
-                          ? (isDark ? AppColors.offWhite : AppColors.charcoal)
-                          : (isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.keyboard_arrow_down_rounded, color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary),
-          ],
-        ),
       ),
     );
   }
