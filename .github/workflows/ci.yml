@@ -5,22 +5,30 @@ on:
   pull_request:
 
 jobs:
-  check:
+  analyze-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Gradle 8.14 / AGP 8.11 cannot run on the runner's default Java 25.
+      # The project targets Java 17 (see android/app/build.gradle.kts).
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Write map keys from secrets
-        env:
-          GOOGLE_MAPS_API_KEY_ANDROID: ${{ secrets.GOOGLE_MAPS_API_KEY_ANDROID }}
-          GOOGLE_MAPS_API_KEY_IOS: ${{ secrets.GOOGLE_MAPS_API_KEY_IOS }}
-        run: python3 .github/scripts/write_map_keys.py
-
       - run: flutter pub get
+
       - run: flutter analyze
+
+      # dart_defines.json is git-ignored; recreate it from a repository secret
+      # (Settings > Secrets and variables > Actions > DART_DEFINES_JSON).
+      - name: Create dart_defines.json
+        run: echo '${{ secrets.DART_DEFINES_JSON }}' > dart_defines.json
+
       - run: flutter build apk --debug --dart-define-from-file=dart_defines.json
